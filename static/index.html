@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LP Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #090c10;
+    --surface:   #0f1318;
+    --border:    #1d2330;
+    --border2:   #252d3a;
+    --text:      #c8d0de;
+    --muted:     #5a6478;
+    --green:     #2dcd7a;
+    --green-dim: rgba(45,205,122,0.12);
+    --red:       #f4545c;
+    --red-dim:   rgba(244,84,92,0.12);
+    --amber:     #f5a623;
+    --amber-dim: rgba(245,166,35,0.12);
+    --blue:      #4a9eff;
+    --blue-dim:  rgba(74,158,255,0.10);
+    --mono:      'IBM Plex Mono', monospace;
+    --sans:      'IBM Plex Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── Header ───────────────────────────────────────────────────── */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--blue);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .logo::before {
+    content: '◈';
+    font-size: 16px;
+  }
+
+  .wallet-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex: 1;
+    max-width: 560px;
+  }
+
+  .wallet-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .wallet-input:focus { border-color: var(--blue); }
+  .wallet-input::placeholder { color: var(--muted); }
+
+  .btn {
+    background: var(--blue);
+    color: #fff;
+    border: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+  }
+
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-sm {
+    padding: 5px 10px;
+    font-size: 11px;
+    background: var(--surface);
+    color: var(--muted);
+    border: 1px solid var(--border2);
+  }
+
+  .btn-sm:hover { color: var(--text); border-color: var(--blue); background: var(--blue-dim); }
+
+  /* ── Main ─────────────────────────────────────────────────────── */
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  /* ── Status bar ───────────────────────────────────────────────── */
+  #status-bar {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.amber { background: var(--amber); }
+
+  /* ── Summary bar ──────────────────────────────────────────────── */
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+
+  .summary-stat {
+    background: var(--surface);
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .summary-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .summary-value {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .summary-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── Position cards ───────────────────────────────────────────── */
+  #positions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 16px;
+  }
+
+  .position-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+
+  .position-card:hover { border-color: var(--blue); }
+
+  .position-card.out-of-range { border-left: 3px solid var(--red); }
+  .position-card.in-range     { border-left: 3px solid var(--green); }
+
+  /* Card header */
+  .card-header {
+    padding: 14px 18px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pair {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pair-tokens {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .fee-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--blue-dim);
+    color: var(--blue);
+    border: 1px solid rgba(74,158,255,0.2);
+  }
+
+  .range-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  .range-badge.in  { background: var(--green-dim); color: var(--green); }
+  .range-badge.out { background: var(--red-dim);   color: var(--red); }
+
+  /* Card body */
+  .card-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* Value row */
+  .value-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .value-total {
+    font-family: var(--mono);
+    font-size: 24px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .value-pnl {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .value-pnl.pos { color: var(--green); }
+  .value-pnl.neg { color: var(--red); }
+  .value-pnl.neutral { color: var(--muted); }
+
+  /* Token amounts */
+  .amounts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .amount-box {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  .amount-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+
+  .amount-value {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .amount-symbol {
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 3px;
+  }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Stats grid */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .stat { display: flex; flex-direction: column; gap: 3px; }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .stat-value.green  { color: var(--green); }
+  .stat-value.red    { color: var(--red); }
+  .stat-value.amber  { color: var(--amber); }
+  .stat-value.muted  { color: var(--muted); }
+
+  /* Range bar */
+  .range-section { display: flex; flex-direction: column; gap: 8px; }
+
+  .range-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .range-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    position: relative;
+    overflow: visible;
+  }
+
+  .range-fill {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--green);
+    opacity: 0.4;
+  }
+
+  .range-fill.out { background: var(--red); }
+
+  .range-tick {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 12px;
+    background: var(--blue);
+    border-radius: 1px;
+    transform: translateX(-50%);
+  }
+
+  .range-prices {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* Fees row */
+  .fees-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--amber-dim);
+    border: 1px solid rgba(245,166,35,0.15);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+
+  .fees-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--amber);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .fees-value {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--amber);
+  }
+
+  .fees-breakdown {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: rgba(245,166,35,0.7);
+  }
+
+  /* Card footer */
+  .card-footer {
+    padding: 10px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .position-id {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .position-id a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .position-id a:hover { color: var(--blue); }
+
+  /* ── Loading / empty ──────────────────────────────────────────── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 24px;
+    gap: 16px;
+    color: var(--muted);
+  }
+
+  .empty-state .icon {
+    font-size: 48px;
+    opacity: 0.4;
+  }
+
+  .empty-state p {
+    font-family: var(--mono);
+    font-size: 13px;
+    text-align: center;
+    max-width: 340px;
+    line-height: 1.7;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+
+  .loading-pulse { animation: pulse 1.4s ease-in-out infinite; }
+
+  /* ── Error banner ─────────────────────────────────────────────── */
+  .error-banner {
+    background: var(--red-dim);
+    border: 1px solid rgba(244,84,92,0.25);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--red);
+    margin-bottom: 20px;
+    display: none;
+  }
+
+  .error-banner.visible { display: block; }
+
+  /* ── Responsive ───────────────────────────────────────────────── */
+  .chain-selector { display: flex; gap: 4px; }
+  .chain-btn {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border2);
+    background: var(--surface);
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    transition: all 0.15s;
+  }
+  .chain-btn:hover { color: var(--text); border-color: var(--blue); }
+  .chain-btn.active { background: var(--blue-dim); color: var(--blue); border-color: var(--blue); }
+    header { padding: 12px 16px; }
+    main   { padding: 16px; }
+    #positions-grid { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">LP Tracker</div>
+  <div class="chain-selector">
+    <button class="chain-btn active" onclick="selectChain('base')"         id="chain-base">Base (Uni)</button>
+    <button class="chain-btn"        onclick="selectChain('base-pancake')" id="chain-base-pancake">Base (Cake)</button>
+    <button class="chain-btn"        onclick="selectChain('ethereum')"     id="chain-ethereum">Ethereum</button>
+    <button class="chain-btn"        onclick="selectChain('arbitrum')"     id="chain-arbitrum">Arbitrum</button>
+  </div>
+  <div class="wallet-form">
+    <input
+      type="text"
+      class="wallet-input"
+      id="wallet-input"
+      placeholder="Wallet address (0x...) or Position ID (e.g. 1920209)"
+      autocomplete="off"
+      spellcheck="false"
+    >
+    <button class="btn" id="load-btn" onclick="loadPositions()">Load</button>
+  </div>
+  <button class="btn btn-sm" id="refresh-btn" style="display:none" onclick="loadPositions(true)">↻ Refresh</button>
+</header>
+
+<main>
+  <div id="status-bar">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Enter a wallet address to view LP positions</span>
+  </div>
+
+  <div class="error-banner" id="error-banner"></div>
+
+  <div id="summary" style="display:none">
+    <div class="summary">
+      <div class="summary-stat">
+        <div class="summary-label">Total Value</div>
+        <div class="summary-value" id="s-total-value">—</div>
+        <div class="summary-sub" id="s-positions">0 positions</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-label">Uncollected Fees</div>
+        <div class="summary-value" id="s-fees">—</div>
+        <div class="summary-sub" id="s-fees-sub">—</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-label">In Range</div>
+        <div class="summary-value" id="s-in-range">—</div>
+        <div class="summary-sub" id="s-range-sub">—</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-label">Total P/L</div>
+        <div class="summary-value" id="s-pnl">—</div>
+        <div class="summary-sub" id="s-pnl-sub">—</div>
+      </div>
+      <div class="summary-stat">
+        <div class="summary-label">Avg APR (est.)</div>
+        <div class="summary-value" id="s-apr">—</div>
+        <div class="summary-sub">position-weighted</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="positions-grid">
+    <div class="empty-state" id="empty-state">
+      <div class="icon">◈</div>
+      <p>Enter your wallet address above to track your Uniswap V3 liquidity positions on Base.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+let currentWallet = '';
+let currentChain  = 'base';
+let lastFetched = null;
+
+function selectChain(chain) {
+  currentChain = chain;
+  document.querySelectorAll('.chain-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`chain-${chain}`).classList.add('active');
+  // If wallet already loaded, re-fetch for new chain
+  if (currentWallet) loadPositions();
+}
+
+function fmt(n, dec=2) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+function fmtUsd(n) {
+  if (n == null) return '—';
+  if (Math.abs(n) >= 1000) return '$' + fmt(n, 0);
+  return '$' + fmt(n, 2);
+}
+
+function fmtToken(n, symbol, dec=4) {
+  if (n == null) return '—';
+  const v = Number(n);
+  // Adaptive decimals
+  const d = v >= 1000 ? 2 : v >= 1 ? 4 : 8;
+  return v.toFixed(Math.min(d, dec));
+}
+
+function fmtPct(n) {
+  if (n == null) return '—';
+  const s = n >= 0 ? '+' : '';
+  return s + fmt(n, 2) + '%';
+}
+
+function fmtPrice(n) {
+  if (n == null || n === 0) return '—';
+  const v = Number(n);
+  if (v >= 1000) return '$' + fmt(v, 0);
+  if (v >= 1)    return '$' + fmt(v, 4);
+  return '$' + v.toFixed(8);
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const d = Math.floor((Date.now() / 1000 - ts) / 86400);
+  if (d === 0) return 'today';
+  if (d === 1) return '1 day ago';
+  if (d < 30)  return d + ' days ago';
+  const m = Math.floor(d / 30);
+  return m + ' month' + (m > 1 ? 's' : '') + ' ago';
+}
+
+function setStatus(text, state = 'neutral') {
+  document.getElementById('status-text').textContent = text;
+  const dot = document.getElementById('status-dot');
+  dot.className = 'status-dot' + (state === 'ok' ? ' green' : state === 'warn' ? ' amber' : '');
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+
+function hideError() {
+  document.getElementById('error-banner').classList.remove('visible');
+}
+
+function buildRangeBar(pos) {
+  const lower = pos.price_lower;
+  const upper = pos.price_upper;
+  const current = pos.current_price;
+  const inRange = pos.in_range;
+
+  // Compute position of current tick as % along [lower, upper] range
+  // Use log scale for better visual
+  const logL = Math.log(lower);
+  const logU = Math.log(upper);
+  const logC = Math.log(current);
+
+  // Extend display range by 20% on each side
+  const padding = (logU - logL) * 0.5;
+  const logMin = logL - padding;
+  const logMax = logU + padding;
+  const total = logMax - logMin;
+
+  const fillLeft  = ((logL - logMin) / total * 100).toFixed(1);
+  const fillRight = ((logMax - logU)  / total * 100).toFixed(1);
+  const fillWidth = (100 - parseFloat(fillLeft) - parseFloat(fillRight)).toFixed(1);
+  const tickPct   = ((logC - logMin) / total * 100).toFixed(1);
+
+  const fillClass = inRange ? '' : 'out';
+
+  return `
+    <div class="range-section">
+      <div class="range-label">
+        <span>Price Range</span>
+        <span>${inRange ? '● in range' : '● out of range'}</span>
+      </div>
+      <div class="range-bar">
+        <div class="range-fill ${fillClass}" style="left:${fillLeft}%;width:${fillWidth}%"></div>
+        <div class="range-tick" style="left:${tickPct}%"></div>
+      </div>
+      <div class="range-prices">
+        <span>${fmtPrice(lower)}</span>
+        <span style="color:var(--blue)">▲ ${fmtPrice(current)}</span>
+        <span>${fmtPrice(upper)}</span>
+      </div>
+    </div>`;
+}
+
+function buildCard(pos) {
+  const inRange = pos.in_range;
+  const cardClass = inRange ? 'position-card in-range' : 'position-card out-of-range';
+  const pair = `${pos.token0.symbol} / ${pos.token1.symbol}`;
+  const feePct = (pos.fee_tier_pct).toFixed(2) + '%';
+
+  const pnlClass = pos.pnl_usd == null ? 'neutral' : pos.pnl_usd >= 0 ? 'pos' : 'neg';
+  const pnlStr = pos.pnl_usd != null
+    ? `${pos.pnl_usd >= 0 ? '+' : ''}${fmtUsd(pos.pnl_usd)} (${fmtPct(pos.pnl_pct)})`
+    : '—';
+
+  const ilStr = pos.il_pct != null
+    ? `${fmtPct(pos.il_pct)} IL`
+    : '—';
+
+  const ilClass = pos.il_pct == null ? 'muted' : pos.il_pct >= 0 ? 'green' : 'red';
+
+  const aprStr = pos.apr_estimate != null ? fmtPct(pos.apr_estimate) + ' APR' : '—';
+  const aprClass = pos.apr_estimate == null ? 'muted' : pos.apr_estimate >= 10 ? 'green' : pos.apr_estimate >= 3 ? 'amber' : 'red';
+
+  const feesUsd = fmtUsd(pos.fees_usd);
+  const fee0Str = `${fmtToken(pos.fee0, pos.token0.symbol)} ${pos.token0.symbol}`;
+  const fee1Str = `${fmtToken(pos.fee1, pos.token1.symbol)} ${pos.token1.symbol}`;
+
+  const uniLink = `https://app.uniswap.org/pools/${pos.id}`;
+  const age = pos.entry_timestamp ? timeAgo(pos.entry_timestamp) : '';
+
+  return `
+  <div class="${cardClass}">
+    <div class="card-header">
+      <div class="pair">
+        <div class="pair-tokens">${pair}</div>
+        <div class="fee-badge">${feePct}</div>
+      </div>
+      <div class="range-badge ${inRange ? 'in' : 'out'}">
+        ${inRange ? '● IN RANGE' : '● OUT OF RANGE'}
+      </div>
+    </div>
+
+    <div class="card-body">
+
+      <div class="value-row">
+        <div class="value-total">${fmtUsd(pos.value_usd)}</div>
+        <div class="value-pnl ${pnlClass}">${pnlStr}</div>
+      </div>
+
+      <div class="amounts">
+        <div class="amount-box">
+          <div class="amount-label">${pos.token0.symbol}</div>
+          <div class="amount-value">
+            ${fmtToken(pos.amount0, pos.token0.symbol)}
+            <span class="amount-symbol">${pos.token0.symbol}</span>
+          </div>
+        </div>
+        <div class="amount-box">
+          <div class="amount-label">${pos.token1.symbol}</div>
+          <div class="amount-value">
+            ${fmtToken(pos.amount1, pos.token1.symbol)}
+            <span class="amount-symbol">${pos.token1.symbol}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fees-row">
+        <div>
+          <div class="fees-label">Uncollected Fees</div>
+          <div class="fees-breakdown">${fee0Str} · ${fee1Str}</div>
+        </div>
+        <div class="fees-value">${feesUsd}</div>
+      </div>
+
+      ${buildRangeBar(pos)}
+
+      <div class="divider"></div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">APR (est.)</div>
+          <div class="stat-value ${aprClass}">${aprStr}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Imp. Loss</div>
+          <div class="stat-value ${ilClass}">${ilStr}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Position Age</div>
+          <div class="stat-value muted">${age || '—'}</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="card-footer">
+      <div class="position-id">
+        ID #${pos.id} ·
+        <a href="${uniLink}" target="_blank" rel="noopener">↗ Uniswap</a>
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">
+        ${fmtPrice(pos.current_price)} current
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderSummary(positions) {
+  const totalValue = positions.reduce((s, p) => s + (p.value_usd || 0), 0);
+  const totalFees  = positions.reduce((s, p) => s + (p.fees_usd || 0), 0);
+  const inRange    = positions.filter(p => p.in_range).length;
+  const totalPnl   = positions.reduce((s, p) => s + (p.pnl_usd || 0), 0);
+
+  const aprs = positions.filter(p => p.apr_estimate != null);
+  const avgApr = aprs.length
+    ? aprs.reduce((s, p) => s + p.apr_estimate * (p.value_usd || 0), 0)
+      / aprs.reduce((s, p) => s + (p.value_usd || 0), 0)
+    : null;
+
+  document.getElementById('s-total-value').textContent = fmtUsd(totalValue);
+  document.getElementById('s-positions').textContent   = `${positions.length} position${positions.length !== 1 ? 's' : ''}`;
+  document.getElementById('s-fees').textContent        = fmtUsd(totalFees);
+  document.getElementById('s-fees-sub').textContent    = 'uncollected';
+  document.getElementById('s-in-range').textContent    = `${inRange} / ${positions.length}`;
+  document.getElementById('s-range-sub').textContent   = inRange === positions.length ? 'all in range' : `${positions.length - inRange} out of range`;
+
+  const pnlEl  = document.getElementById('s-pnl');
+  const pnlHasPnl = positions.some(p => p.pnl_usd != null);
+  pnlEl.textContent = pnlHasPnl ? fmtUsd(totalPnl) : '—';
+  pnlEl.style.color = pnlHasPnl ? (totalPnl >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--text)';
+  document.getElementById('s-pnl-sub').textContent = pnlHasPnl ? fmtPct(totalPnl / Math.abs(positions.reduce((s, p) => s + (p.deposit_usd || 0), 0)) * 100) + ' total' : 'add entry prices for P/L';
+
+  document.getElementById('s-apr').textContent = avgApr != null ? fmtPct(avgApr) : '—';
+  document.getElementById('s-apr').style.color = avgApr != null ? (avgApr >= 10 ? 'var(--green)' : avgApr >= 3 ? 'var(--amber)' : 'var(--red)') : 'var(--text)';
+
+  document.getElementById('summary').style.display = 'block';
+}
+
+async function loadPositions(forceRefresh = false) {
+  const walletInput = document.getElementById('wallet-input');
+  const input = walletInput.value.trim();
+
+  if (!input) {
+    showError('Please enter a wallet address or position ID.');
+    return;
+  }
+
+  // Detect if input is a position ID (numeric) or wallet address (0x...)
+  const isPositionId = /^\d+$/.test(input);
+  const isWallet = input.startsWith('0x') && input.length === 42;
+
+  if (!isPositionId && !isWallet) {
+    showError('Enter a valid wallet address (0x...) or position ID (numeric).');
+    return;
+  }
+
+  hideError();
+  currentWallet = input;
+
+  const btn = document.getElementById('load-btn');
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+
+  setStatus(isPositionId
+    ? `Fetching position #${input}…`
+    : 'Fetching positions from The Graph…', 'neutral');
+
+  const grid = document.getElementById('positions-grid');
+  grid.innerHTML = `<div class="empty-state"><div class="icon loading-pulse">◈</div><p>${isPositionId ? `Fetching position #${input}…` : 'Fetching your positions…'}</p></div>`;
+  document.getElementById('summary').style.display = 'none';
+
+  try {
+    const url = isPositionId
+      ? `/api/position/${input}?chain=${currentChain}`
+      : `/api/positions?wallet=${encodeURIComponent(input)}&chain=${currentChain}${forceRefresh ? '&refresh=1' : ''}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    btn.disabled = false;
+    btn.textContent = 'Load';
+    document.getElementById('refresh-btn').style.display = 'block';
+
+    if (data.error) {
+      showError(data.error);
+      setStatus('Error fetching positions', 'warn');
+      grid.innerHTML = `<div class="empty-state"><div class="icon">⚠</div><p>${data.error}</p></div>`;
+      return;
+    }
+
+    const positions = data.positions || [];
+    lastFetched = data.fetched_at;
+
+    if (positions.length === 0) {
+      setStatus('No active positions found', 'warn');
+      grid.innerHTML = `<div class="empty-state"><div class="icon">◇</div><p>No active Uniswap V3 positions found for this wallet on ${currentChain.charAt(0).toUpperCase() + currentChain.slice(1)}.<br><br>Make sure the wallet has active (non-zero liquidity) positions.</p></div>`;
+      document.getElementById('summary').style.display = 'none';
+      return;
+    }
+
+    renderSummary(positions);
+    grid.innerHTML = positions.map(buildCard).join('');
+
+    const cached = data.cached ? ' (cached)' : '';
+    const inRange = positions.filter(p => p.in_range).length;
+    setStatus(`${positions.length} position${positions.length !== 1 ? 's' : ''} · ${inRange} in range · ${inRange < positions.length ? positions.length - inRange + ' out of range · ' : ''}updated just now${cached}`, 'ok');
+
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Load';
+    showError('Network error: ' + e.message);
+    setStatus('Connection error', 'warn');
+    grid.innerHTML = `<div class="empty-state"><div class="icon">⚠</div><p>Could not connect to the server.</p></div>`;
+  }
+}
+
+// Allow Enter key to load
+document.getElementById('wallet-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadPositions();
+});
+
+// Check URL params for wallet
+const params = new URLSearchParams(window.location.search);
+const walletParam = params.get('wallet');
+if (walletParam) {
+  document.getElementById('wallet-input').value = walletParam;
+  loadPositions();
+}
+</script>
+</body>
+</html>
