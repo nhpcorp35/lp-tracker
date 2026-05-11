@@ -510,6 +510,19 @@
     #positions-grid { grid-template-columns: 1fr; }
     .stats { grid-template-columns: repeat(2, 1fr); }
   }
+  .entry-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; }
+  .entry-modal-overlay.open { display: flex; }
+  .entry-modal { background: #0f1318; border: 1px solid var(--border2); border-radius: 12px; padding: 24px; width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .entry-modal h3 { font-family: var(--mono); font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 16px; }
+  .entry-modal label { font-family: var(--mono); font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; margin-top: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .entry-modal input { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border2); border-radius: 6px; padding: 8px 10px; font-size: 14px; font-family: var(--mono); color: var(--text); }
+  .entry-modal input:focus { outline: none; border-color: var(--blue); }
+  .entry-modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+  .entry-modal-actions button { padding: 7px 14px; border-radius: 6px; font-size: 12px; font-family: var(--mono); cursor: pointer; border: 1px solid var(--border2); background: var(--surface); color: var(--text); }
+  .entry-modal-actions .btn-save { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .entry-modal-actions .btn-clear { color: var(--red); }
+  .entry-edit-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 11px; padding: 2px 5px; border-radius: 3px; vertical-align: middle; }
+  .entry-edit-btn:hover { color: var(--blue); }
 </style>
 </head>
 <body>
@@ -535,6 +548,21 @@
   </div>
   <button class="btn btn-sm" id="refresh-btn" style="display:none" onclick="loadPositions(true)">↻ Refresh</button>
 </header>
+
+<div class="entry-modal-overlay" id="entry-modal-overlay" onclick="if(event.target===this)closeEntryModal()">
+  <div class="entry-modal">
+    <h3 id="entry-modal-title">Set Entry Price</h3>
+    <label>USD value you deposited</label>
+    <input type="number" id="entry-usd" step="0.01" min="0" placeholder="e.g. 2073.00">
+    <label>Notes (optional)</label>
+    <input type="text" id="entry-notes" placeholder="e.g. opened via vfat Apr 15">
+    <div class="entry-modal-actions">
+      <button class="btn-clear" onclick="clearLpEntry()">Clear</button>
+      <button onclick="closeEntryModal()">Cancel</button>
+      <button class="btn-save" onclick="saveLpEntry()">Save</button>
+    </div>
+  </div>
+</div>
 
 <main>
   <div id="status-bar">
@@ -586,6 +614,56 @@
 let currentWallet = '';
 let currentChain  = 'base';
 let lastFetched = null;
+let lpEntries = {};  // position_id -> {entry_usd, notes}
+let _entryModalPositionId = null;
+
+async function loadLpEntries() {
+  try {
+    const res = await fetch('/api/lp-entries');
+    if (res.ok) lpEntries = await res.json();
+  } catch(e) { console.warn('Could not load LP entries:', e); }
+}
+
+function openEntryModal(positionId, pair) {
+  _entryModalPositionId = String(positionId);
+  document.getElementById('entry-modal-title').textContent = `Entry for #${positionId} ${pair}`;
+  const e = lpEntries[_entryModalPositionId] || {};
+  document.getElementById('entry-usd').value = e.entry_usd ?? '';
+  document.getElementById('entry-notes').value = e.notes ?? '';
+  document.getElementById('entry-modal-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('entry-usd').focus(), 50);
+}
+
+function closeEntryModal() {
+  document.getElementById('entry-modal-overlay').classList.remove('open');
+  _entryModalPositionId = null;
+}
+
+async function saveLpEntry() {
+  const id = _entryModalPositionId;
+  if (!id) return;
+  const usd = parseFloat(document.getElementById('entry-usd').value);
+  if (isNaN(usd) || usd <= 0) { alert('Enter a valid USD amount.'); return; }
+  const body = { entry_usd: usd, notes: document.getElementById('entry-notes').value || null };
+  const res = await fetch(`/api/lp-entries/${id}`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  if (res.ok) {
+    await loadLpEntries();
+    closeEntryModal();
+    renderSummary(lastPositions);
+    renderGrid(lastPositions);
+  }
+}
+
+async function clearLpEntry() {
+  const id = _entryModalPositionId;
+  if (!id || !confirm(`Clear entry for position #${id}?`)) return;
+  await fetch(`/api/lp-entries/${id}`, { method: 'DELETE' });
+  await loadLpEntries();
+  closeEntryModal();
+  renderGrid(lastPositions);
+}
+
+let lastPositions = [];
 
 function selectChain(chain) {
   currentChain = chain;
@@ -703,10 +781,28 @@ function buildCard(pos) {
   const pair = `${pos.token0.symbol} / ${pos.token1.symbol}`;
   const feePct = (pos.fee_tier_pct).toFixed(2) + '%';
 
-  const pnlClass = pos.pnl_usd == null ? 'neutral' : pos.pnl_usd >= 0 ? 'pos' : 'neg';
-  const pnlStr = pos.pnl_usd != null
-    ? `${pos.pnl_usd >= 0 ? '+' : ''}${fmtUsd(pos.pnl_usd)} (${fmtPct(pos.pnl_pct)})`
-    : '—';
+  // Use manual entry P/L if available, otherwise use backend calculation
+  const manualEntry = lpEntries[String(pos.id)];
+  let pnlUsd = pos.pnl_usd;
+  let pnlPct = pos.pnl_pct;
+  let isManual = pos.is_manual_pnl;
+
+  if (manualEntry && manualEntry.entry_usd) {
+    const entryUsd = manualEntry.entry_usd;
+    const currentTotal = (pos.value_usd || 0) + (pos.fees_usd || 0);
+    pnlUsd = currentTotal - entryUsd;
+    pnlPct = (pnlUsd / entryUsd) * 100;
+    isManual = true;
+  }
+
+  const pnlClass = pnlUsd == null ? 'neutral' : pnlUsd >= 0 ? 'pos' : 'neg';
+  const manualDot = isManual
+    ? `<span title="Manual entry" style="color:var(--blue);font-size:9px;margin-left:2px">●</span>`
+    : `<span title="Subgraph estimate" style="color:var(--muted);font-size:9px;margin-left:2px">○</span>`;
+  const editBtn = `<button class="entry-edit-btn" onclick="event.stopPropagation();openEntryModal('${pos.id}','${pair}')" title="Set entry price">✏️</button>`;
+  const pnlStr = pnlUsd != null
+    ? `${pnlUsd >= 0 ? '+' : ''}${fmtUsd(pnlUsd)} (${fmtPct(pnlPct)})${manualDot} ${editBtn}`
+    : `— ${editBtn}`;
 
   const ilStr = pos.il_pct != null
     ? `${fmtPct(pos.il_pct)} IL`
@@ -801,11 +897,26 @@ function buildCard(pos) {
   </div>`;
 }
 
+function calcFrontendPnl(pos) {
+  const manualEntry = lpEntries[String(pos.id)];
+  if (manualEntry && manualEntry.entry_usd) {
+    const entryUsd = manualEntry.entry_usd;
+    const currentTotal = (pos.value_usd || 0) + (pos.fees_usd || 0);
+    return { pnl_usd: currentTotal - entryUsd, deposit_usd: entryUsd, is_manual: true };
+  }
+  return { pnl_usd: pos.pnl_usd, deposit_usd: pos.deposit_usd, is_manual: false };
+}
+
 function renderSummary(positions) {
   const totalValue = positions.reduce((s, p) => s + (p.value_usd || 0), 0);
   const totalFees  = positions.reduce((s, p) => s + (p.fees_usd || 0), 0);
   const inRange    = positions.filter(p => p.in_range).length;
-  const totalPnl   = positions.reduce((s, p) => s + (p.pnl_usd || 0), 0);
+
+  // Use frontend-calculated P/L (respects manual entries)
+  const pnlData = positions.map(calcFrontendPnl);
+  const totalPnl = pnlData.reduce((s, d) => s + (d.pnl_usd || 0), 0);
+  const totalDeposit = pnlData.reduce((s, d) => s + (d.deposit_usd || 0), 0);
+  const hasPnl = pnlData.some(d => d.pnl_usd != null);
 
   const aprs = positions.filter(p => p.apr_estimate != null);
   const avgApr = aprs.length
@@ -820,11 +931,12 @@ function renderSummary(positions) {
   document.getElementById('s-in-range').textContent    = `${inRange} / ${positions.length}`;
   document.getElementById('s-range-sub').textContent   = inRange === positions.length ? 'all in range' : `${positions.length - inRange} out of range`;
 
-  const pnlEl  = document.getElementById('s-pnl');
-  const pnlHasPnl = positions.some(p => p.pnl_usd != null);
-  pnlEl.textContent = pnlHasPnl ? fmtUsd(totalPnl) : '—';
-  pnlEl.style.color = pnlHasPnl ? (totalPnl >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--text)';
-  document.getElementById('s-pnl-sub').textContent = pnlHasPnl ? fmtPct(totalPnl / Math.abs(positions.reduce((s, p) => s + (p.deposit_usd || 0), 0)) * 100) + ' total' : 'add entry prices for P/L';
+  const pnlEl = document.getElementById('s-pnl');
+  pnlEl.textContent = hasPnl ? fmtUsd(totalPnl) : '—';
+  pnlEl.style.color = hasPnl ? (totalPnl >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--text)';
+  document.getElementById('s-pnl-sub').textContent = hasPnl && totalDeposit > 0
+    ? fmtPct(totalPnl / totalDeposit * 100) + ' total'
+    : 'add entry prices for P/L';
 
   document.getElementById('s-apr').textContent = avgApr != null ? fmtPct(avgApr) : '—';
   document.getElementById('s-apr').style.color = avgApr != null ? (avgApr >= 10 ? 'var(--green)' : avgApr >= 3 ? 'var(--amber)' : 'var(--red)') : 'var(--text)';
@@ -894,8 +1006,12 @@ async function loadPositions(forceRefresh = false) {
       return;
     }
 
+    // Reload entries fresh before rendering so P/L is always current
+    await loadLpEntries();
+
     renderSummary(positions);
-    grid.innerHTML = positions.map(buildCard).join('');
+    lastPositions = positions;
+    renderGrid(positions);
 
     const cached = data.cached ? ' (cached)' : '';
     const inRange = positions.filter(p => p.in_range).length;
@@ -910,10 +1026,18 @@ async function loadPositions(forceRefresh = false) {
   }
 }
 
+function renderGrid(positions) {
+  const grid = document.getElementById('positions-grid');
+  grid.innerHTML = positions.map(buildCard).join('');
+}
+
 // Allow Enter key to load
 document.getElementById('wallet-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') loadPositions();
 });
+
+// Load LP entries on startup
+loadLpEntries();
 
 // Check URL params for wallet
 const params = new URLSearchParams(window.location.search);

@@ -31,6 +31,27 @@ ALCHEMY_ARB    = os.environ.get("ALCHEMY_ARB_URL", "")
 
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
 
+# Manual entry price storage — persists user-entered cost basis per position ID
+LP_ENTRIES_FILE = os.environ.get("LP_ENTRIES_FILE", "lp_entries.json")
+
+
+def _load_lp_entries() -> dict:
+    try:
+        if os.path.exists(LP_ENTRIES_FILE):
+            with open(LP_ENTRIES_FILE) as f:
+                return json.load(f)
+    except Exception as e:
+        app.logger.warning("Could not load lp_entries: %s", e)
+    return {}
+
+
+def _save_lp_entries(entries: dict):
+    try:
+        with open(LP_ENTRIES_FILE, "w") as f:
+            json.dump(entries, f, indent=2)
+    except Exception as e:
+        app.logger.warning("Could not save lp_entries: %s", e)
+
 # Chain configurations
 CHAINS = {
     "base": {
@@ -292,6 +313,8 @@ query GetPositions($owner: String!) {
       feeGrowthGlobal0X128
       feeGrowthGlobal1X128
       volumeUSD
+      totalValueLockedUSD
+      liquidity
       poolDayData(first: 7, orderBy: date, orderDirection: desc) {
         date
         volumeUSD
@@ -339,6 +362,8 @@ query GetPositionById($id: ID!) {
       feeGrowthGlobal0X128
       feeGrowthGlobal1X128
       volumeUSD
+      totalValueLockedUSD
+      liquidity
       poolDayData(first: 7, orderBy: date, orderDirection: desc) {
         date
         volumeUSD
@@ -493,18 +518,23 @@ def enrich_position(pos: dict) -> dict:
     day_data = pool.get("poolDayData", [])
     if day_data and value_usd > 0:
         try:
-            # Position's share of pool liquidity (rough estimate)
-            # Use 7d avg daily fees * 365 / position value
             total_fees_7d = sum(float(d.get("feesUSD", 0)) for d in day_data)
             avg_daily_fees = total_fees_7d / max(len(day_data), 1)
 
-            # Position's share = our liquidity / (estimated pool liquidity)
-            # Simplified: assume uniform distribution within range
-            L = int(pos.get("liquidity", 0))
-            pool_total_liquidity = 1  # We'd need pool.liquidity from subgraph
-            # Better: use value_usd vs pool TVL
-            pool_tvl = float(pool.get("totalValueLockedUSD") or 0)
-            if pool_tvl > 0:
+            # Use liquidity share for APR — much more accurate for narrow ranges.
+            # Position liquidity / pool total liquidity = position's fee share
+            # when price is in range. The subgraph's `liquidity` field on the
+            # pool is the current active (in-range) liquidity.
+            pos_liquidity = int(pos.get("liquidity", 0))
+            pool_liquidity = int(pool.get("liquidity") or 0)
+
+            if pool_liquidity > 0 and pos_liquidity > 0:
+                share = pos_liquidity / pool_liquidity
+                daily_fees_earned = avg_daily_fees * share
+                apr_estimate = (daily_fees_earned * 365 / value_usd) * 100
+            elif float(pool.get("totalValueLockedUSD") or 0) > 0:
+                # Fallback to TVL share if liquidity not available
+                pool_tvl = float(pool["totalValueLockedUSD"])
                 share = value_usd / pool_tvl
                 daily_fees_earned = avg_daily_fees * share
                 apr_estimate = (daily_fees_earned * 365 / value_usd) * 100
@@ -533,14 +563,25 @@ def enrich_position(pos: dict) -> dict:
             il_pct = round(il * 100, 2)
 
     # ── PnL (vs deposited) ─────────────────────────────────────────────────
-    deposit_usd  = net_dep0 * price0_usd + net_dep1 * price1_usd
+    # Try manual entry first (set via ✏️ button), fall back to subgraph deposit data.
+    lp_entries = _load_lp_entries()
+    manual_entry = lp_entries.get(str(pos["id"]))
+    manual_entry_usd = float(manual_entry["entry_usd"]) if manual_entry and "entry_usd" in manual_entry else None
+
+    deposit_usd = manual_entry_usd
+    is_manual_pnl = True
+    if deposit_usd is None:
+        # Fallback: subgraph deposit history (unreliable for vfat/staked positions)
+        deposit_usd = net_dep0 * price0_usd + net_dep1 * price1_usd if (net_dep0 > 0 or net_dep1 > 0) else None
+        is_manual_pnl = False
+
     collected_fees_usd = (
         float(pos.get("collectedFeesToken0") or 0) * price0_usd
         + float(pos.get("collectedFeesToken1") or 0) * price1_usd
     )
     pnl_usd = None
     pnl_pct = None
-    if deposit_usd > 0:
+    if deposit_usd and deposit_usd > 0:
         total_current = value_usd + fees_usd + collected_fees_usd
         pnl_usd = total_current - deposit_usd
         pnl_pct = (pnl_usd / deposit_usd) * 100
@@ -570,7 +611,8 @@ def enrich_position(pos: dict) -> dict:
         # Values
         "value_usd":       round(value_usd, 2),
         "fees_usd":        round(fees_usd, 4),
-        "deposit_usd":     round(deposit_usd, 2) if deposit_usd > 0 else None,
+        "deposit_usd":     round(deposit_usd, 2) if deposit_usd else None,
+        "is_manual_pnl":   is_manual_pnl,
         "pnl_usd":         round(pnl_usd, 2) if pnl_usd is not None else None,
         "pnl_pct":         round(pnl_pct, 2) if pnl_pct is not None else None,
         "il_pct":          il_pct,
@@ -685,6 +727,34 @@ def get_position_by_id(position_id):
     _cache[cache_key] = {"positions": positions, "fetched_at": time.time()}
     return jsonify({"positions": positions, "cached": False,
                     "fetched_at": time.time(), "chain": chain})
+
+
+@app.route("/api/lp-entries", methods=["GET"])
+def get_lp_entries():
+    return jsonify(_load_lp_entries())
+
+
+@app.route("/api/lp-entries/<position_id>", methods=["POST"])
+def set_lp_entry(position_id):
+    body = request.get_json(silent=True) or {}
+    entries = _load_lp_entries()
+    entry = entries.get(position_id, {})
+    if "entry_usd" in body:
+        entry["entry_usd"] = float(body["entry_usd"])
+    if "notes" in body:
+        entry["notes"] = str(body["notes"])
+    entry["position_id"] = position_id
+    entries[position_id] = entry
+    _save_lp_entries(entries)
+    return jsonify({"ok": True, "entry": entry})
+
+
+@app.route("/api/lp-entries/<position_id>", methods=["DELETE"])
+def delete_lp_entry(position_id):
+    entries = _load_lp_entries()
+    removed = entries.pop(position_id, None)
+    _save_lp_entries(entries)
+    return jsonify({"ok": True, "removed": removed is not None})
 
 
 @app.route("/api/chains")
