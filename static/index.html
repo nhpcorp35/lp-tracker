@@ -537,6 +537,18 @@
   .entry-modal-actions .btn-clear { color: var(--red); }
   .entry-edit-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 11px; padding: 2px 5px; border-radius: 3px; vertical-align: middle; }
   .entry-edit-btn:hover { color: var(--blue); }
+
+  /* ── Saved positions panel ────────────────────────────────────── */
+  .saved-panel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 24px; display: none; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .saved-panel.visible { display: flex; }
+  .saved-panel-label { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+  .saved-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--blue-dim); border: 1px solid rgba(74,158,255,0.25); border-radius: 20px; padding: 4px 10px 4px 12px; font-family: var(--mono); font-size: 11px; color: var(--blue); cursor: pointer; transition: all 0.15s; }
+  .saved-chip:hover { background: rgba(74,158,255,0.2); border-color: var(--blue); }
+  .saved-chip-remove { color: rgba(74,158,255,0.5); font-size: 13px; line-height: 1; padding: 0 2px; background: none; border: none; cursor: pointer; }
+  .saved-chip-remove:hover { color: var(--red); }
+  .save-pos-btn { background: none; border: 1px solid var(--border2); border-radius: 6px; color: var(--muted); font-family: var(--mono); font-size: 11px; padding: 5px 10px; cursor: pointer; transition: all 0.15s; }
+  .save-pos-btn:hover { color: var(--amber); border-color: var(--amber); }
+  .save-pos-btn.saved { color: var(--amber); border-color: var(--amber); background: rgba(245,166,35,0.08); }
 </style>
 </head>
 <body>
@@ -561,8 +573,16 @@
     <button class="btn" id="load-btn" onclick="loadPositions()">Load</button>
   </div>
   <button class="btn btn-sm" id="refresh-btn" style="display:none" onclick="loadPositions(true)">↻ Refresh</button>
+  <button class="save-pos-btn" id="save-pos-btn" style="display:none" onclick="toggleSavePosition()">⭐ Save</button>
+  <button class="btn btn-sm" onclick="toggleSavedPanel()" id="saved-btn">📌 Saved</button>
   <button class="btn btn-sm" onclick="toggleAlertPanel()" id="alert-btn">🔔 Alerts</button>
 </header>
+
+<div class="saved-panel" id="saved-panel">
+  <span class="saved-panel-label">Saved:</span>
+  <div id="saved-chips" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
+  <span id="saved-empty" style="font-family:var(--mono);font-size:11px;color:var(--muted);display:none;">No saved positions yet. Load a position ID and click ⭐ Save.</span>
+</div>
 
 <div class="alert-panel" id="alert-panel">
   <div class="alert-panel-header">
@@ -1059,6 +1079,8 @@ async function loadPositions(forceRefresh = false) {
       _currentPositionId = input;
       _currentChain = currentChain;
       document.getElementById('watch-current-btn').style.display = 'inline-block';
+      document.getElementById('save-pos-btn').style.display = 'inline-block';
+      updateSaveBtn();
     }
 
     // Reload entries fresh before rendering so P/L is always current
@@ -1183,6 +1205,82 @@ function toggleAlertPanel() {
   const panel = document.getElementById('alert-panel');
   panel.classList.toggle('visible');
   if (panel.classList.contains('visible')) loadAlertSettings();
+}
+
+// ── Saved positions ───────────────────────────────────────────────────────────
+
+function getSaved() {
+  try { return JSON.parse(localStorage.getItem('lp_saved') || '[]'); } catch { return []; }
+}
+
+function setSaved(arr) {
+  localStorage.setItem('lp_saved', JSON.stringify(arr));
+}
+
+function renderSavedChips() {
+  const saved = getSaved();
+  const chips = document.getElementById('saved-chips');
+  const empty = document.getElementById('saved-empty');
+  if (!saved.length) {
+    chips.innerHTML = '';
+    empty.style.display = 'inline';
+    return;
+  }
+  empty.style.display = 'none';
+  chips.innerHTML = saved.map(s => `
+    <span class="saved-chip" onclick="loadSavedPosition('${s.id}','${s.chain}')">
+      #${s.id} <span style="color:rgba(74,158,255,0.6)">${chainLabel(s.chain)}</span>
+      <button class="saved-chip-remove" onclick="event.stopPropagation();removeSaved('${s.id}','${s.chain}')">×</button>
+    </span>`).join('');
+  // Update save button state
+  updateSaveBtn();
+}
+
+function chainLabel(chain) {
+  return { 'base': 'Uni', 'base-pancake': 'Cake', 'ethereum': 'ETH', 'arbitrum': 'ARB' }[chain] || chain;
+}
+
+function toggleSavedPanel() {
+  const panel = document.getElementById('saved-panel');
+  panel.classList.toggle('visible');
+  renderSavedChips();
+}
+
+function toggleSavePosition() {
+  if (!_currentPositionId || !_currentChain) return;
+  const saved = getSaved();
+  const exists = saved.find(s => s.id === _currentPositionId && s.chain === _currentChain);
+  if (exists) {
+    removeSaved(_currentPositionId, _currentChain);
+  } else {
+    saved.push({ id: _currentPositionId, chain: _currentChain });
+    setSaved(saved);
+    renderSavedChips();
+    updateSaveBtn();
+  }
+}
+
+function removeSaved(id, chain) {
+  const saved = getSaved().filter(s => !(s.id === id && s.chain === chain));
+  setSaved(saved);
+  renderSavedChips();
+}
+
+function updateSaveBtn() {
+  const btn = document.getElementById('save-pos-btn');
+  if (!_currentPositionId) return;
+  const saved = getSaved();
+  const exists = saved.find(s => s.id === _currentPositionId && s.chain === _currentChain);
+  btn.textContent = exists ? '⭐ Saved' : '⭐ Save';
+  btn.classList.toggle('saved', !!exists);
+}
+
+async function loadSavedPosition(id, chain) {
+  // Switch chain
+  selectChain(chain);
+  // Set input and load
+  document.getElementById('wallet-input').value = id;
+  await loadPositions();
 }
 
 // Load alert settings on startup
