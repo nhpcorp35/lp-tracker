@@ -9,6 +9,7 @@ import time
 import math
 import logging
 import requests
+import threading
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from web3 import Web3
@@ -30,6 +31,25 @@ ALCHEMY_ETH    = os.environ.get("ALCHEMY_ETH_URL", "")
 ALCHEMY_ARB    = os.environ.get("ALCHEMY_ARB_URL", "")
 
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
+
+# ── Twilio SMS alert config ───────────────────────────────────────────────────
+TWILIO_SID      = os.environ.get("TWILIO_SID", "")
+TWILIO_TOKEN    = os.environ.get("TWILIO_TOKEN", "")
+TWILIO_FROM     = os.environ.get("TWILIO_FROM", "")   # your Twilio number
+TWILIO_TO       = os.environ.get("TWILIO_TO", "")     # your personal cell
+
+# Alert settings (override via env or /api/alert-settings PATCH)
+ALERT_SETTINGS_FILE    = os.environ.get("ALERT_SETTINGS_FILE", "alert_settings.json")
+DEFAULT_ALERT_SETTINGS = {
+    "enabled":           True,
+    "threshold_pct":     5.0,    # alert when price within X% of boundary
+    "poll_interval_sec": 300,    # check every N seconds
+    "cooldown_min":      60,     # min minutes between repeat alerts per position
+}
+
+# In-memory alert state — tracks last alert time per position
+_alert_state = {}   # { "chain:position_id": last_alert_timestamp }
+_alert_thread = None
 
 # Manual entry price storage — persists user-entered cost basis per position ID
 LP_ENTRIES_FILE = os.environ.get("LP_ENTRIES_FILE", "lp_entries.json")
@@ -763,6 +783,234 @@ def get_chains():
     return jsonify({k: {"name": v["name"]} for k, v in CHAINS.items()})
 
 
+# ── Alert settings persistence ────────────────────────────────────────────────
+
+def _load_alert_settings() -> dict:
+    try:
+        if os.path.exists(ALERT_SETTINGS_FILE):
+            saved = json.load(open(ALERT_SETTINGS_FILE))
+            return {**DEFAULT_ALERT_SETTINGS, **saved}
+    except Exception:
+        pass
+    return dict(DEFAULT_ALERT_SETTINGS)
+
+
+def _save_alert_settings(settings: dict):
+    try:
+        json.dump(settings, open(ALERT_SETTINGS_FILE, "w"), indent=2)
+    except Exception as e:
+        app.logger.warning("Could not save alert settings: %s", e)
+
+
+# ── SMS sending ───────────────────────────────────────────────────────────────
+
+def send_sms(message: str) -> bool:
+    """Send an SMS via Twilio. Returns True on success."""
+    if not all([TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, TWILIO_TO]):
+        app.logger.warning("Twilio not configured — SMS not sent")
+        return False
+    try:
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json"
+        resp = requests.post(
+            url,
+            auth=(TWILIO_SID, TWILIO_TOKEN),
+            data={
+                "From": TWILIO_FROM,
+                "To":   TWILIO_TO,
+                "Body": message,
+            },
+            timeout=10,
+        )
+        if resp.status_code == 201:
+            app.logger.info("SMS sent: %s", message[:60])
+            return True
+        else:
+            app.logger.error("Twilio error %s: %s", resp.status_code, resp.text[:200])
+            return False
+    except Exception as e:
+        app.logger.error("SMS send failed: %s", e)
+        return False
+
+
+# ── Alert logic ───────────────────────────────────────────────────────────────
+
+def _pct_from_boundary(current_price: float, lower: float, upper: float) -> dict:
+    """
+    Return how far the current price is from each boundary as a percentage.
+    pct_from_lower: 0% means AT the lower boundary, 100% means at upper.
+    Returns dict with distance_lower_pct and distance_upper_pct.
+    """
+    if upper <= lower or current_price <= 0:
+        return {"distance_lower_pct": None, "distance_upper_pct": None}
+    dist_lower = ((current_price - lower) / lower) * 100
+    dist_upper = ((upper - current_price) / upper) * 100
+    return {
+        "distance_lower_pct": round(dist_lower, 2),
+        "distance_upper_pct": round(dist_upper, 2),
+    }
+
+
+def _check_and_alert(position: dict, chain: str, settings: dict):
+    """Check a single position and send SMS if near boundary."""
+    pos_id  = str(position.get("id", ""))
+    key     = f"{chain}:{pos_id}"
+    threshold = float(settings.get("threshold_pct", 5.0))
+    cooldown  = float(settings.get("cooldown_min", 60)) * 60  # → seconds
+
+    current = position.get("current_price")
+    lower   = position.get("price_lower")
+    upper   = position.get("price_upper")
+    in_range = position.get("in_range", True)
+
+    if not all([current, lower, upper]):
+        return
+
+    distances = _pct_from_boundary(current, lower, upper)
+    dist_lower = distances["distance_lower_pct"]
+    dist_upper = distances["distance_upper_pct"]
+
+    pair = f"{position.get('token0',{}).get('symbol','?')}/{position.get('token1',{}).get('symbol','?')}"
+
+    alert_msg = None
+
+    if not in_range:
+        alert_msg = (
+            f"🚨 LP OUT OF RANGE: {pair} #{pos_id}\n"
+            f"Current: ${current:,.2f}\n"
+            f"Range: ${lower:,.2f} - ${upper:,.2f}\n"
+            f"Position is earning ZERO fees."
+        )
+    elif dist_lower is not None and dist_lower <= threshold:
+        alert_msg = (
+            f"⚠️ LP Near Lower Boundary: {pair} #{pos_id}\n"
+            f"Current: ${current:,.2f} | Lower limit: ${lower:,.2f}\n"
+            f"Only {dist_lower:.1f}% above lower boundary."
+        )
+    elif dist_upper is not None and dist_upper <= threshold:
+        alert_msg = (
+            f"⚠️ LP Near Upper Boundary: {pair} #{pos_id}\n"
+            f"Current: ${current:,.2f} | Upper limit: ${upper:,.2f}\n"
+            f"Only {dist_upper:.1f}% below upper boundary."
+        )
+
+    if alert_msg:
+        last_alert = _alert_state.get(key, 0)
+        if time.time() - last_alert >= cooldown:
+            if send_sms(alert_msg):
+                _alert_state[key] = time.time()
+                app.logger.info("Alert sent for position %s on %s", pos_id, chain)
+        else:
+            mins_ago = round((time.time() - last_alert) / 60)
+            app.logger.info(
+                "Alert suppressed for %s (cooldown, last sent %dm ago)", key, mins_ago
+            )
+
+
+def _alert_poll_loop():
+    """Background thread — polls watched positions and fires SMS alerts."""
+    app.logger.info("Alert polling thread started")
+    while True:
+        try:
+            settings = _load_alert_settings()
+            if not settings.get("enabled", True):
+                time.sleep(60)
+                continue
+
+            poll_interval = int(settings.get("poll_interval_sec", 300))
+
+            # Load watched positions from alert_settings
+            watched = settings.get("watched_positions", [])
+            # watched = [{"position_id": "1920209", "chain": "base-pancake"}, ...]
+
+            for wp in watched:
+                pos_id = str(wp.get("position_id", ""))
+                chain  = wp.get("chain", "base-pancake")
+                if not pos_id:
+                    continue
+                try:
+                    raw = query_by_id(pos_id, chain)
+                    if raw:
+                        enriched = enrich_position(raw)
+                        _check_and_alert(enriched, chain, settings)
+                except Exception as e:
+                    app.logger.warning("Alert poll error for %s: %s", pos_id, e)
+
+        except Exception as e:
+            app.logger.error("Alert loop error: %s", e)
+
+        time.sleep(poll_interval)
+
+
+# ── Alert API endpoints ───────────────────────────────────────────────────────
+
+@app.route("/api/alert-settings", methods=["GET"])
+def get_alert_settings():
+    return jsonify(_load_alert_settings())
+
+
+@app.route("/api/alert-settings", methods=["PATCH"])
+def update_alert_settings():
+    """Update alert settings. Accepts partial updates."""
+    body = request.get_json(silent=True) or {}
+    settings = _load_alert_settings()
+    for key in ["enabled", "threshold_pct", "poll_interval_sec", "cooldown_min", "watched_positions"]:
+        if key in body:
+            settings[key] = body[key]
+    _save_alert_settings(settings)
+    return jsonify({"ok": True, "settings": settings})
+
+
+@app.route("/api/alert-settings/watch", methods=["POST"])
+def add_watched_position():
+    """Add a position to the watch list."""
+    body = request.get_json(silent=True) or {}
+    pos_id = str(body.get("position_id", ""))
+    chain  = body.get("chain", "base-pancake")
+    if not pos_id:
+        return jsonify({"error": "position_id required"}), 400
+
+    settings = _load_alert_settings()
+    watched  = settings.get("watched_positions", [])
+
+    # Avoid duplicates
+    if not any(w["position_id"] == pos_id and w["chain"] == chain for w in watched):
+        watched.append({"position_id": pos_id, "chain": chain})
+        settings["watched_positions"] = watched
+        _save_alert_settings(settings)
+
+    return jsonify({"ok": True, "watched": watched})
+
+
+@app.route("/api/alert-settings/unwatch", methods=["POST"])
+def remove_watched_position():
+    """Remove a position from the watch list."""
+    body    = request.get_json(silent=True) or {}
+    pos_id  = str(body.get("position_id", ""))
+    chain   = body.get("chain", "base-pancake")
+    settings = _load_alert_settings()
+    watched  = [w for w in settings.get("watched_positions", [])
+                if not (w["position_id"] == pos_id and w["chain"] == chain)]
+    settings["watched_positions"] = watched
+    _save_alert_settings(settings)
+    return jsonify({"ok": True, "watched": watched})
+
+
+@app.route("/api/alert-test", methods=["POST"])
+def test_alert():
+    """Send a test SMS to verify Twilio is configured correctly."""
+    ok = send_sms("✅ LP Tracker test alert — Twilio is working correctly!")
+    return jsonify({"ok": ok, "twilio_configured": bool(TWILIO_SID and TWILIO_TOKEN)})
+
+
+@app.route("/api/alert-state", methods=["GET"])
+def get_alert_state():
+    """Return current alert state (last alert times per position)."""
+    return jsonify({
+        k: {"last_alert": v, "mins_ago": round((time.time() - v) / 60)}
+        for k, v in _alert_state.items()
+    })
+
+
 @app.route("/api/health")
 def health():
     return jsonify({
@@ -774,4 +1022,7 @@ def health():
 
 
 if __name__ == "__main__":
+    # Start background alert polling thread
+    _alert_thread = threading.Thread(target=_alert_poll_loop, daemon=True)
+    _alert_thread.start()
     app.run(host="0.0.0.0", port=5001, debug=False)

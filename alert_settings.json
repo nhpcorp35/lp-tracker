@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "threshold_pct": 5.0,
+  "poll_interval_sec": 300,
+  "cooldown_min": 60,
+  "watched_positions": [
+    {
+      "position_id": "1920209",
+      "chain": "base-pancake"
+    }
+  ]
+}

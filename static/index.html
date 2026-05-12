@@ -510,7 +510,21 @@
     #positions-grid { grid-template-columns: 1fr; }
     .stats { grid-template-columns: repeat(2, 1fr); }
   }
-  .entry-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; }
+  .alert-panel { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; padding: 16px 20px; margin-bottom: 1.2rem; display: none; }
+  .alert-panel.visible { display: block; }
+  .alert-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .alert-panel-title { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--text); letter-spacing: 0.06em; text-transform: uppercase; }
+  .alert-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .alert-field label { font-family: var(--mono); font-size: 10px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .alert-field input[type="number"] { width: 100%; background: var(--bg); border: 1px solid var(--border2); border-radius: 5px; padding: 6px 8px; font-family: var(--mono); font-size: 13px; color: var(--text); }
+  .alert-field input[type="number"]:focus { outline: none; border-color: var(--blue); }
+  .alert-toggle { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--muted); cursor: pointer; }
+  .alert-toggle input[type="checkbox"] { accent-color: var(--blue); width: 14px; height: 14px; }
+  .alert-watched { margin-top: 10px; }
+  .alert-watched-title { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .watched-item { display: flex; align-items: center; justify-content: space-between; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin-bottom: 4px; font-family: var(--mono); font-size: 12px; }
+  .watched-item .remove-btn { color: var(--red); cursor: pointer; background: none; border: none; font-size: 14px; padding: 0 4px; }
+  .alert-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .entry-modal-overlay.open { display: flex; }
   .entry-modal { background: #0f1318; border: 1px solid var(--border2); border-radius: 12px; padding: 24px; width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
   .entry-modal h3 { font-family: var(--mono); font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 16px; }
@@ -547,7 +561,41 @@
     <button class="btn" id="load-btn" onclick="loadPositions()">Load</button>
   </div>
   <button class="btn btn-sm" id="refresh-btn" style="display:none" onclick="loadPositions(true)">↻ Refresh</button>
+  <button class="btn btn-sm" onclick="toggleAlertPanel()" id="alert-btn">🔔 Alerts</button>
 </header>
+
+<div class="alert-panel" id="alert-panel">
+  <div class="alert-panel-header">
+    <div class="alert-panel-title">🔔 SMS Alert Settings</div>
+    <label class="alert-toggle">
+      <input type="checkbox" id="alert-enabled" onchange="saveAlertSettings()">
+      Alerts enabled
+    </label>
+  </div>
+  <div class="alert-grid">
+    <div class="alert-field">
+      <label>Boundary threshold (%)</label>
+      <input type="number" id="alert-threshold" value="5" min="1" max="50" step="0.5" onchange="saveAlertSettings()">
+    </div>
+    <div class="alert-field">
+      <label>Poll interval (seconds)</label>
+      <input type="number" id="alert-poll" value="300" min="60" max="3600" step="60" onchange="saveAlertSettings()">
+    </div>
+    <div class="alert-field">
+      <label>Cooldown (minutes)</label>
+      <input type="number" id="alert-cooldown" value="60" min="5" max="1440" step="5" onchange="saveAlertSettings()">
+    </div>
+  </div>
+  <div class="alert-watched">
+    <div class="alert-watched-title">Watched Positions</div>
+    <div id="watched-list"></div>
+  </div>
+  <div class="alert-actions">
+    <button class="btn btn-sm" onclick="testAlert()">📱 Send Test SMS</button>
+    <button class="btn btn-sm" id="watch-current-btn" style="display:none" onclick="watchCurrentPosition()">+ Watch Current Position</button>
+  </div>
+  <div id="alert-status" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;"></div>
+</div>
 
 <div class="entry-modal-overlay" id="entry-modal-overlay" onclick="if(event.target===this)closeEntryModal()">
   <div class="entry-modal">
@@ -1006,6 +1054,13 @@ async function loadPositions(forceRefresh = false) {
       return;
     }
 
+    // Store current position for alert watch button
+    if (isPositionId) {
+      _currentPositionId = input;
+      _currentChain = currentChain;
+      document.getElementById('watch-current-btn').style.display = 'inline-block';
+    }
+
     // Reload entries fresh before rendering so P/L is always current
     await loadLpEntries();
 
@@ -1035,6 +1090,103 @@ function renderGrid(positions) {
 document.getElementById('wallet-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') loadPositions();
 });
+
+// ── Alert system ──────────────────────────────────────────────────────────────
+
+let _alertSettings = {};
+let _currentPositionId = null;
+let _currentChain = null;
+
+async function loadAlertSettings() {
+  try {
+    const res = await fetch('/api/alert-settings');
+    if (res.ok) {
+      _alertSettings = await res.json();
+      document.getElementById('alert-enabled').checked   = _alertSettings.enabled ?? true;
+      document.getElementById('alert-threshold').value   = _alertSettings.threshold_pct ?? 5;
+      document.getElementById('alert-poll').value        = _alertSettings.poll_interval_sec ?? 300;
+      document.getElementById('alert-cooldown').value    = _alertSettings.cooldown_min ?? 60;
+      renderWatchedList(_alertSettings.watched_positions || []);
+    }
+  } catch(e) { console.warn('Could not load alert settings:', e); }
+}
+
+function renderWatchedList(watched) {
+  const el = document.getElementById('watched-list');
+  if (!watched.length) {
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--muted);">No positions being watched. Load a position and click "+ Watch".</div>';
+    return;
+  }
+  el.innerHTML = watched.map(w => `
+    <div class="watched-item">
+      <span>#${w.position_id} <span style="color:var(--muted)">${w.chain}</span></span>
+      <button class="remove-btn" onclick="unwatchPosition('${w.position_id}','${w.chain}')">×</button>
+    </div>`).join('');
+}
+
+async function saveAlertSettings() {
+  const body = {
+    enabled:           document.getElementById('alert-enabled').checked,
+    threshold_pct:     parseFloat(document.getElementById('alert-threshold').value),
+    poll_interval_sec: parseInt(document.getElementById('alert-poll').value),
+    cooldown_min:      parseInt(document.getElementById('alert-cooldown').value),
+  };
+  try {
+    await fetch('/api/alert-settings', { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    setAlertStatus('Settings saved ✓');
+  } catch(e) { setAlertStatus('Save failed: ' + e.message); }
+}
+
+async function testAlert() {
+  setAlertStatus('Sending test SMS...');
+  try {
+    const res = await fetch('/api/alert-test', { method: 'POST' });
+    const data = await res.json();
+    setAlertStatus(data.ok ? '✅ Test SMS sent successfully!' : '❌ SMS failed — check Twilio credentials');
+  } catch(e) { setAlertStatus('Error: ' + e.message); }
+}
+
+async function watchCurrentPosition() {
+  if (!_currentPositionId || !_currentChain) return;
+  try {
+    const res = await fetch('/api/alert-settings/watch', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ position_id: _currentPositionId, chain: _currentChain })
+    });
+    const data = await res.json();
+    renderWatchedList(data.watched || []);
+    setAlertStatus(`Watching position #${_currentPositionId} ✓`);
+  } catch(e) { setAlertStatus('Error: ' + e.message); }
+}
+
+async function unwatchPosition(positionId, chain) {
+  try {
+    const res = await fetch('/api/alert-settings/unwatch', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ position_id: positionId, chain })
+    });
+    const data = await res.json();
+    renderWatchedList(data.watched || []);
+    setAlertStatus(`Removed #${positionId} from watch list`);
+  } catch(e) { setAlertStatus('Error: ' + e.message); }
+}
+
+function setAlertStatus(msg) {
+  const el = document.getElementById('alert-status');
+  el.textContent = msg;
+  setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 4000);
+}
+
+function toggleAlertPanel() {
+  const panel = document.getElementById('alert-panel');
+  panel.classList.toggle('visible');
+  if (panel.classList.contains('visible')) loadAlertSettings();
+}
+
+// Load alert settings on startup
+loadAlertSettings();
 
 // Load LP entries on startup
 loadLpEntries();
