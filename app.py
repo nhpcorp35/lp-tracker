@@ -10,7 +10,6 @@ import math
 import logging
 import requests
 import threading
-import telnyx
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from web3 import Web3
