@@ -10,6 +10,7 @@ import math
 import logging
 import requests
 import threading
+import telnyx
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from web3 import Web3
@@ -20,7 +21,6 @@ load_dotenv()
 app = Flask(__name__, static_folder="static")
 CORS(app)
 
-import logging
 logging.basicConfig(level=logging.INFO)
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -32,11 +32,10 @@ ALCHEMY_ARB    = os.environ.get("ALCHEMY_ARB_URL", "")
 
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
 
-# ── Twilio SMS alert config ───────────────────────────────────────────────────
-TWILIO_SID      = os.environ.get("TWILIO_SID", "")
-TWILIO_TOKEN    = os.environ.get("TWILIO_TOKEN", "")
-TWILIO_FROM     = os.environ.get("TWILIO_FROM", "")   # your Twilio number
-TWILIO_TO       = os.environ.get("TWILIO_TO", "")     # your personal cell
+# ── Telnyx SMS alert config ───────────────────────────────────────────────────
+TELNYX_API_KEY  = os.environ.get("TELNYX_API_KEY", "")
+TELNYX_FROM     = os.environ.get("TELNYX_FROM", "")   # your Telnyx number (+18153761403)
+TELNYX_TO       = os.environ.get("TELNYX_TO", "")     # your personal cell
 
 # Alert settings (override via env or /api/alert-settings PATCH)
 ALERT_SETTINGS_FILE    = os.environ.get("ALERT_SETTINGS_FILE", "alert_settings.json")
@@ -257,9 +256,6 @@ def tick_to_price(tick: int, decimals0: int, decimals1: int) -> float:
     """Convert a tick to human-readable price (token1 per token0)."""
     raw = 1.0001 ** tick
     return raw * (10 ** decimals0) / (10 ** decimals1)
-    """Convert a tick to human-readable price (token1 per token0)."""
-    raw = 1.0001 ** tick
-    return raw * (10 ** decimals0) / (10 ** decimals1)
 
 
 def calculate_il(
@@ -445,29 +441,6 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
     except Exception as e:
         app.logger.error("Subgraph query by ID failed: %s", e)
         return None
-    """Query The Graph for Uniswap V3 positions owned by a wallet."""
-    cfg = CHAINS.get(chain, CHAINS["base"])
-    url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
-    owner = wallet.lower()
-    payload = {
-        "query": POSITIONS_QUERY,
-        "variables": {"owner": owner},
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {GRAPH_API_KEY}",
-    }
-    try:
-        r = requests.post(url, json=payload, headers=headers, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        if "errors" in data:
-            app.logger.error("Subgraph errors: %s", data["errors"])
-            return []
-        return data.get("data", {}).get("positions", [])
-    except Exception as e:
-        app.logger.error("Subgraph query failed: %s", e)
-        return []
 
 
 # ── Position enrichment ───────────────────────────────────────────────────────
@@ -805,28 +778,19 @@ def _save_alert_settings(settings: dict):
 # ── SMS sending ───────────────────────────────────────────────────────────────
 
 def send_sms(message: str) -> bool:
-    """Send an SMS via Twilio. Returns True on success."""
-    if not all([TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, TWILIO_TO]):
-        app.logger.warning("Twilio not configured — SMS not sent")
+    """Send an SMS via Telnyx. Returns True on success."""
+    if not all([TELNYX_API_KEY, TELNYX_FROM, TELNYX_TO]):
+        app.logger.warning("Telnyx not configured — SMS not sent")
         return False
     try:
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json"
-        resp = requests.post(
-            url,
-            auth=(TWILIO_SID, TWILIO_TOKEN),
-            data={
-                "From": TWILIO_FROM,
-                "To":   TWILIO_TO,
-                "Body": message,
-            },
-            timeout=10,
+        telnyx.api_key = TELNYX_API_KEY
+        telnyx.Message.create(
+            from_=TELNYX_FROM,
+            to=TELNYX_TO,
+            text=message,
         )
-        if resp.status_code == 201:
-            app.logger.info("SMS sent: %s", message[:60])
-            return True
-        else:
-            app.logger.error("Twilio error %s: %s", resp.status_code, resp.text[:200])
-            return False
+        app.logger.info("SMS sent: %s", message[:60])
+        return True
     except Exception as e:
         app.logger.error("SMS send failed: %s", e)
         return False
@@ -997,9 +961,9 @@ def remove_watched_position():
 
 @app.route("/api/alert-test", methods=["POST"])
 def test_alert():
-    """Send a test SMS to verify Twilio is configured correctly."""
-    ok = send_sms("✅ LP Tracker test alert — Twilio is working correctly!")
-    return jsonify({"ok": ok, "twilio_configured": bool(TWILIO_SID and TWILIO_TOKEN)})
+    """Send a test SMS to verify Telnyx is configured correctly."""
+    ok = send_sms("✅ LP Tracker test alert — Telnyx is working correctly!")
+    return jsonify({"ok": ok, "telnyx_configured": bool(TELNYX_API_KEY and TELNYX_FROM and TELNYX_TO)})
 
 
 @app.route("/api/alert-state", methods=["GET"])
@@ -1015,9 +979,10 @@ def get_alert_state():
 def health():
     return jsonify({
         "ok": True,
-        "graph_configured": bool(GRAPH_API_KEY),
+        "graph_configured":   bool(GRAPH_API_KEY),
         "alchemy_configured": bool(ALCHEMY_BASE),
-        "web3_connected": w3.is_connected() if w3 else False,
+        "web3_connected":     w3.is_connected() if w3 else False,
+        "telnyx_configured":  bool(TELNYX_API_KEY and TELNYX_FROM and TELNYX_TO),
     })
 
 
