@@ -515,6 +515,16 @@
   .alert-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
   .alert-panel-title { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--text); letter-spacing: 0.06em; text-transform: uppercase; }
   .alert-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .optin-section { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+  .optin-section-title { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .optin-phone-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .optin-phone-row input { flex: 1; background: var(--bg); border: 1px solid var(--border2); color: var(--text); font-family: var(--mono); font-size: 12px; padding: 7px 10px; border-radius: 6px; outline: none; }
+  .optin-phone-row input:focus { border-color: var(--blue); }
+  .optin-consent { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+  .optin-consent input[type=checkbox] { margin-top: 2px; flex-shrink: 0; }
+  .optin-consent-text { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .optin-consent-text a { color: var(--blue); text-decoration: none; }
+  .optin-saved { font-family: var(--mono); font-size: 11px; color: var(--green); margin-top: 4px; display: none; }
   .alert-field label { font-family: var(--mono); font-size: 10px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
   .alert-field input[type="number"] { width: 100%; background: var(--bg); border: 1px solid var(--border2); border-radius: 5px; padding: 6px 8px; font-family: var(--mono); font-size: 13px; color: var(--text); }
   .alert-field input[type="number"]:focus { outline: none; border-color: var(--blue); }
@@ -615,6 +625,21 @@
     <button class="btn btn-sm" id="watch-current-btn" style="display:none" onclick="watchCurrentPosition()">+ Watch Current Position</button>
   </div>
   <div id="alert-status" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;"></div>
+
+  <div class="optin-section">
+    <div class="optin-section-title">📱 SMS Opt-In</div>
+    <div class="optin-phone-row">
+      <input type="tel" id="optin-phone" placeholder="+1 (555) 000-0000" autocomplete="tel">
+      <button class="btn btn-sm" onclick="saveOptIn()">Save</button>
+    </div>
+    <div class="optin-consent">
+      <input type="checkbox" id="optin-consent-check" onchange="updateConsentState()">
+      <span class="optin-consent-text">
+        By entering my phone number and checking this box, I consent to receive automated SMS alerts from LP Tracker at lptracker.info regarding my liquidity pool positions. Message frequency varies based on position activity. Message and data rates may apply. Reply STOP to unsubscribe at any time.
+      </span>
+    </div>
+    <div class="optin-saved" id="optin-saved">✓ Phone number saved — alerts enabled</div>
+  </div>
 </div>
 
 <div class="entry-modal-overlay" id="entry-modal-overlay" onclick="if(event.target===this)closeEntryModal()">
@@ -1204,7 +1229,41 @@ function setAlertStatus(msg) {
 function toggleAlertPanel() {
   const panel = document.getElementById('alert-panel');
   panel.classList.toggle('visible');
-  if (panel.classList.contains('visible')) loadAlertSettings();
+  if (panel.classList.contains('visible')) {
+    loadAlertSettings();
+    loadOptIn();
+  }
+}
+
+function loadOptIn() {
+  const phone = localStorage.getItem('optin_phone') || '';
+  const consented = localStorage.getItem('optin_consented') === 'true';
+  document.getElementById('optin-phone').value = phone;
+  document.getElementById('optin-consent-check').checked = consented;
+  if (phone && consented) {
+    document.getElementById('optin-saved').style.display = 'block';
+  }
+}
+
+function updateConsentState() {
+  const consented = document.getElementById('optin-consent-check').checked;
+  localStorage.setItem('optin_consented', consented);
+}
+
+function saveOptIn() {
+  const phone = document.getElementById('optin-phone').value.trim();
+  const consented = document.getElementById('optin-consent-check').checked;
+  if (!phone) { alert('Please enter a phone number.'); return; }
+  if (!consented) { alert('Please check the consent box to enable SMS alerts.'); return; }
+  localStorage.setItem('optin_phone', phone);
+  localStorage.setItem('optin_consented', 'true');
+  // Send to backend
+  fetch('/api/alert-settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ twilio_to: phone, optin_consented: true })
+  });
+  document.getElementById('optin-saved').style.display = 'block';
 }
 
 // ── Saved positions ───────────────────────────────────────────────────────────
