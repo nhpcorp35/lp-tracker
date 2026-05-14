@@ -777,19 +777,30 @@ def _save_alert_settings(settings: dict):
 # ── SMS sending ───────────────────────────────────────────────────────────────
 
 def send_sms(message: str) -> bool:
-    """Send an SMS via Telnyx. Returns True on success."""
+    """Send an SMS via Telnyx REST API. Returns True on success."""
     if not all([TELNYX_API_KEY, TELNYX_FROM, TELNYX_TO]):
         app.logger.warning("Telnyx not configured — SMS not sent")
         return False
     try:
-        telnyx.api_key = TELNYX_API_KEY
-        telnyx.Message.create(
-            from_=TELNYX_FROM,
-            to=TELNYX_TO,
-            text=message,
+        resp = requests.post(
+            "https://api.telnyx.com/v2/messages",
+            headers={
+                "Authorization": f"Bearer {TELNYX_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": TELNYX_FROM,
+                "to":   TELNYX_TO,
+                "text": message,
+            },
+            timeout=10,
         )
-        app.logger.info("SMS sent: %s", message[:60])
-        return True
+        if resp.status_code == 200:
+            app.logger.info("SMS sent: %s", message[:60])
+            return True
+        else:
+            app.logger.error("Telnyx error %s: %s", resp.status_code, resp.text[:200])
+            return False
     except Exception as e:
         app.logger.error("SMS send failed: %s", e)
         return False
