@@ -776,9 +776,9 @@ def _save_alert_settings(settings: dict):
 
 # ── SMS sending ───────────────────────────────────────────────────────────────
 
-def send_sms(message: str) -> bool:
-    """Send an SMS via Telnyx REST API. Returns True on success."""
-    if not all([TELNYX_API_KEY, TELNYX_FROM, TELNYX_TO]):
+def _send_sms_to(to_number: str, message: str) -> bool:
+    """Send an SMS via Telnyx REST API to a specific number. Returns True on success."""
+    if not all([TELNYX_API_KEY, TELNYX_FROM]):
         app.logger.warning("Telnyx not configured — SMS not sent")
         return False
     try:
@@ -790,13 +790,13 @@ def send_sms(message: str) -> bool:
             },
             json={
                 "from": TELNYX_FROM,
-                "to":   TELNYX_TO,
+                "to":   to_number,
                 "text": message,
             },
             timeout=10,
         )
         if resp.status_code == 200:
-            app.logger.info("SMS sent: %s", message[:60])
+            app.logger.info("SMS sent to %s: %s", to_number, message[:60])
             return True
         else:
             app.logger.error("Telnyx error %s: %s", resp.status_code, resp.text[:200])
@@ -804,6 +804,16 @@ def send_sms(message: str) -> bool:
     except Exception as e:
         app.logger.error("SMS send failed: %s", e)
         return False
+
+
+def send_sms(message: str) -> bool:
+    """Send an SMS to the configured destination (optin number or env fallback)."""
+    settings = _load_alert_settings()
+    to = settings.get("sms_to") or TELNYX_TO
+    if not to:
+        app.logger.warning("No SMS destination configured — SMS not sent")
+        return False
+    return _send_sms_to(to, message)
 
 
 # ── Alert logic ───────────────────────────────────────────────────────────────
@@ -967,6 +977,31 @@ def remove_watched_position():
     settings["watched_positions"] = watched
     _save_alert_settings(settings)
     return jsonify({"ok": True, "watched": watched})
+
+
+@app.route("/api/sms-optin", methods=["POST"])
+def sms_optin():
+    """Save opted-in phone number and send a confirmation text."""
+    body = request.get_json(silent=True) or {}
+    phone = str(body.get("phone", "")).strip()
+    consented = body.get("consented", False)
+
+    if not phone or not consented:
+        return jsonify({"ok": False, "error": "phone and consented required"}), 400
+
+    # Save to alert settings so the polling thread can use it
+    settings = _load_alert_settings()
+    settings["sms_to"] = phone
+    settings["optin_consented"] = True
+    _save_alert_settings(settings)
+
+    # Send confirmation text to the opted-in number
+    ok = _send_sms_to(phone, (
+        "✅ LP Tracker alerts enabled!\n"
+        "You'll receive SMS alerts when your liquidity positions approach their boundaries.\n"
+        "Reply STOP to unsubscribe at any time."
+    ))
+    return jsonify({"ok": ok})
 
 
 @app.route("/api/alert-test", methods=["POST"])

@@ -1257,13 +1257,19 @@ function saveOptIn() {
   if (!consented) { alert('Please check the consent box to enable SMS alerts.'); return; }
   localStorage.setItem('optin_phone', phone);
   localStorage.setItem('optin_consented', 'true');
-  // Send to backend
-  fetch('/api/alert-settings', {
-    method: 'PATCH',
+  fetch('/api/sms-optin', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ twilio_to: phone, optin_consented: true })
+    body: JSON.stringify({ phone, consented: true })
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      document.getElementById('optin-saved').style.display = 'block';
+    } else {
+      alert('Failed to save phone number. Please try again.');
+    }
+  }).catch(() => {
+    document.getElementById('optin-saved').style.display = 'block';
   });
-  document.getElementById('optin-saved').style.display = 'block';
 }
 
 // ── Saved positions ───────────────────────────────────────────────────────────
