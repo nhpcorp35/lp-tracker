@@ -1061,6 +1061,57 @@ def get_alert_state():
     })
 
 
+@app.route("/terms")
+def terms():
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LP Tracker — Terms & Conditions</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           max-width: 680px; margin: 60px auto; padding: 0 24px;
+           color: #e2e8f0; background: #0f1117; line-height: 1.7; }
+    h1   { font-size: 1.5rem; margin-bottom: 0.25rem; color: #fff; }
+    h2   { font-size: 1rem; margin-top: 2rem; color: #fff; }
+    p    { margin: 0.5rem 0; }
+    a    { color: #60a5fa; }
+    .updated { font-size: 0.85rem; color: #64748b; margin-bottom: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>LP Tracker — Terms &amp; Conditions</h1>
+  <p class="updated">Last updated: May 15, 2026</p>
+
+  <h2>Service Description</h2>
+  <p>LP Tracker is a personal liquidity pool monitoring tool that provides SMS alerts
+  when your DeFi positions approach price boundaries or go out of range.</p>
+
+  <h2>SMS Alerts</h2>
+  <p>By providing your phone number and consenting to alerts, you agree to receive
+  automated SMS messages from LP Tracker. Message frequency varies based on position
+  activity. Message and data rates may apply.</p>
+
+  <h2>Opt-Out</h2>
+  <p>Reply <strong>STOP</strong> to any message to unsubscribe at any time. Reply
+  <strong>HELP</strong> for support.</p>
+
+  <h2>No Financial Advice</h2>
+  <p>LP Tracker provides informational alerts only. Nothing in this service constitutes
+  financial, investment, or trading advice. You are solely responsible for your
+  liquidity positions and any decisions made based on alerts received.</p>
+
+  <h2>Limitation of Liability</h2>
+  <p>LP Tracker is provided as-is. We are not liable for missed alerts, delayed
+  messages, inaccurate data, or any losses resulting from use of this service.</p>
+
+  <h2>Contact</h2>
+  <p>For questions: <a href="mailto:allen@nhpcorp.com">allen@nhpcorp.com</a></p>
+</body>
+</html>""", 200, {"Content-Type": "text/html"}
+
+
 @app.route("/privacy")
 def privacy():
     return """<!DOCTYPE html>
