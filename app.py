@@ -1061,6 +1061,51 @@ def get_alert_state():
     })
 
 
+@app.route("/privacy")
+def privacy():
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LP Tracker — Privacy Policy</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           max-width: 680px; margin: 60px auto; padding: 0 24px;
+           color: #e2e8f0; background: #0f1117; line-height: 1.7; }
+    h1   { font-size: 1.5rem; margin-bottom: 0.25rem; color: #fff; }
+    h2   { font-size: 1rem; margin-top: 2rem; color: #fff; }
+    p    { margin: 0.5rem 0; }
+    a    { color: #60a5fa; }
+    .updated { font-size: 0.85rem; color: #64748b; margin-bottom: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>LP Tracker — Privacy Policy</h1>
+  <p class="updated">Last updated: May 15, 2026</p>
+
+  <h2>SMS Alerts</h2>
+  <p>LP Tracker collects your phone number solely to send automated alerts about your
+  liquidity pool positions. Messages are sent only when your positions approach their
+  price boundaries or go out of range.</p>
+
+  <h2>Data Use</h2>
+  <p>Your phone number is never sold, shared with third parties, or used for marketing
+  purposes of any kind.</p>
+
+  <h2>Message Frequency</h2>
+  <p>Message frequency varies based on position activity. Message and data rates may apply.</p>
+
+  <h2>Opt-Out</h2>
+  <p>Reply <strong>STOP</strong> at any time to unsubscribe. You will receive no further
+  messages after opting out.</p>
+
+  <h2>Contact</h2>
+  <p>For questions or concerns: <a href="mailto:allen@nhpcorp.com">allen@nhpcorp.com</a></p>
+</body>
+</html>""", 200, {"Content-Type": "text/html"}
+
+
 @app.route("/api/health")
 def health():
     return jsonify({
