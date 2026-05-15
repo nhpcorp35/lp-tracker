@@ -228,10 +228,31 @@ def calculate_fee_amounts(
         fg0_last = int(position.get("feeGrowthInside0LastX128", 0) or 0)
         fg1_last = int(position.get("feeGrowthInside1LastX128", 0) or 0)
 
+        # Guard: if both feeGrowthInsideLast values are 0, the subgraph hasn't
+        # indexed this position yet (brand new position). Computing against a 0
+        # baseline would yield the pool's entire lifetime fee accumulation as
+        # phantom fees. Return 0 until the subgraph catches up.
+        if fg0_last == 0 and fg1_last == 0:
+            return 0.0, 0.0
+
         raw_fee0 = (fgi0 - fg0_last) % MOD * L // Q128
         raw_fee1 = (fgi1 - fg1_last) % MOD * L // Q128
 
-        return raw_fee0 / (10 ** decimals0), raw_fee1 / (10 ** decimals1)
+        fee0 = raw_fee0 / (10 ** decimals0)
+        fee1 = raw_fee1 / (10 ** decimals1)
+
+        # Sanity cap: if fees are implausibly large vs liquidity, subgraph data
+        # is stale or corrupt. Cap at 0 rather than show phantom fees.
+        # A position can't earn more than ~100% of its value in a single refresh cycle.
+        amt0_approx = L / (10 ** decimals0) * 1e-12  # rough order-of-magnitude
+        if fee0 > max(amt0_approx * 1000, 1e6) or fee1 > max(amt0_approx * 1000, 1e9):
+            app.logger.warning(
+                "Fee sanity cap triggered: fee0=%.4f fee1=%.4f — returning 0",
+                fee0, fee1,
+            )
+            return 0.0, 0.0
+
+        return fee0, fee1
     except Exception as e:
         app.logger.warning("Fee calculation error: %s", e)
         return 0.0, 0.0
