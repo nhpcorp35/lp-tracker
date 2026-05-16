@@ -1295,7 +1295,7 @@ async function toggleSavePosition() {
       });
       if (res.ok) _saved = await res.json();
     } catch(e) { console.warn('Could not save position:', e); }
-    renderSavedChips();
+    await loadSaved();
     updateSaveBtn();
   }
 }
@@ -1335,6 +1335,7 @@ function renderSavedChips() {
 function toggleSavedPanel() {
   const panel = document.getElementById('saved-panel');
   panel.classList.toggle('visible');
+  if (panel.classList.contains('visible')) loadSaved();
 }
 
 function updateSaveBtn() {
