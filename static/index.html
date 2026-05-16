@@ -1051,7 +1051,7 @@ function renderSummary(positions) {
 
 async function loadPositions(forceRefresh = false) {
   const walletInput = document.getElementById('wallet-input');
-  const input = walletInput.value.trim();
+  const input = (walletInput.value.trim() || currentWallet).trim();
 
   if (!input) {
     showError('Please enter a wallet address or position ID.');
@@ -1302,6 +1302,7 @@ async function loadSaved() {
 
   // Auto-load all saved positions on startup if nothing is loaded yet
   if (_saved.length > 0 && !currentWallet) {
+    lastPositions = [];  // clear before loading
     for (const s of _saved) {
       try {
         const url = `/api/position/${s.id}?chain=${s.chain}`;
