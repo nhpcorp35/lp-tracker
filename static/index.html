@@ -874,19 +874,12 @@ function buildCard(pos) {
   const pair = `${pos.token0.symbol} / ${pos.token1.symbol}`;
   const feePct = (pos.fee_tier_pct).toFixed(2) + '%';
 
-  // Use manual entry P/L if available, otherwise use backend calculation
-  const manualEntry = lpEntries[String(pos.id)];
-  let pnlUsd = pos.pnl_usd;
-  let pnlPct = pos.pnl_pct;
-  let isManual = pos.is_manual_pnl;
-
-  if (manualEntry && manualEntry.entry_usd) {
-    const entryUsd = manualEntry.entry_usd;
-    const currentTotal = (pos.value_usd || 0) + (pos.fees_usd || 0);
-    pnlUsd = currentTotal - entryUsd;
-    pnlPct = (pnlUsd / entryUsd) * 100;
-    isManual = true;
-  }
+  // Always use backend pnl_usd — backend already applies manual entries and
+  // includes collected fees in the calculation. Frontend recalculation was
+  // incorrectly omitting collected_fees_usd, causing P/L to show too low.
+  const pnlUsd = pos.pnl_usd;
+  const pnlPct = pos.pnl_pct;
+  const isManual = pos.is_manual_pnl;
 
   const pnlClass = pnlUsd == null ? 'neutral' : pnlUsd >= 0 ? 'pos' : 'neg';
   const manualDot = isManual
@@ -910,7 +903,10 @@ function buildCard(pos) {
   const fee0Str = `${fmtToken(pos.fee0, pos.token0.symbol)} ${pos.token0.symbol}`;
   const fee1Str = `${fmtToken(pos.fee1, pos.token1.symbol)} ${pos.token1.symbol}`;
 
-  const uniLink = `https://app.uniswap.org/pools/${pos.id}`;
+  const dexLabel = currentChain === 'base-pancake' ? 'PancakeSwap' : 'Uniswap';
+  const dexLink  = currentChain === 'base-pancake'
+    ? `https://pancakeswap.finance/liquidity/${pos.id}`
+    : `https://app.uniswap.org/pools/${pos.id}`;
   const age = pos.entry_timestamp ? timeAgo(pos.entry_timestamp) : '';
 
   return `
@@ -981,7 +977,7 @@ function buildCard(pos) {
     <div class="card-footer">
       <div class="position-id">
         ID #${pos.id} ·
-        <a href="${uniLink}" target="_blank" rel="noopener">↗ Uniswap</a>
+        <a href="${dexLink}" target="_blank" rel="noopener">↗ ${dexLabel}</a>
       </div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">
         ${fmtPrice(pos.current_price)} current
@@ -991,13 +987,8 @@ function buildCard(pos) {
 }
 
 function calcFrontendPnl(pos) {
-  const manualEntry = lpEntries[String(pos.id)];
-  if (manualEntry && manualEntry.entry_usd) {
-    const entryUsd = manualEntry.entry_usd;
-    const currentTotal = (pos.value_usd || 0) + (pos.fees_usd || 0);
-    return { pnl_usd: currentTotal - entryUsd, deposit_usd: entryUsd, is_manual: true };
-  }
-  return { pnl_usd: pos.pnl_usd, deposit_usd: pos.deposit_usd, is_manual: false };
+  // Use backend pnl_usd which correctly includes collected fees and manual entries.
+  return { pnl_usd: pos.pnl_usd, deposit_usd: pos.deposit_usd, is_manual: pos.is_manual_pnl };
 }
 
 function renderSummary(positions) {

@@ -608,9 +608,23 @@ def enrich_position(pos: dict) -> dict:
         deposit_usd = net_dep0 * price0_usd + net_dep1 * price1_usd if (net_dep0 > 0 or net_dep1 > 0) else None
         is_manual_pnl = False
 
+    collected_fees0_raw = float(pos.get("collectedFeesToken0") or 0)
+    collected_fees1_raw = float(pos.get("collectedFeesToken1") or 0)
+
+    # Sanity: if both collected fee values are exactly equal and non-zero,
+    # the subgraph is returning a duplicate/artifact (seen on PancakeSwap Base).
+    # Zero them out to avoid inflating P/L.
+    if collected_fees0_raw == collected_fees1_raw and collected_fees0_raw > 0:
+        app.logger.warning(
+            "pos=%s: collected_fees_token0 == collected_fees_token1 (%.8f) — subgraph artifact, zeroing",
+            pos["id"], collected_fees0_raw,
+        )
+        collected_fees0_raw = 0.0
+        collected_fees1_raw = 0.0
+
     collected_fees_usd = (
-        float(pos.get("collectedFeesToken0") or 0) * price0_usd
-        + float(pos.get("collectedFeesToken1") or 0) * price1_usd
+        collected_fees0_raw * price0_usd
+        + collected_fees1_raw * price1_usd
     )
     pnl_usd = None
     pnl_pct = None
@@ -657,8 +671,8 @@ def enrich_position(pos: dict) -> dict:
         "entry_timestamp": int(pos["transaction"]["timestamp"]) if pos.get("transaction") else None,
 
         # History
-        "collected_fees_token0": float(pos.get("collectedFeesToken0") or 0),
-        "collected_fees_token1": float(pos.get("collectedFeesToken1") or 0),
+        "collected_fees_token0": collected_fees0_raw,
+        "collected_fees_token1": collected_fees1_raw,
         "deposited_token0":      deposited0,
         "deposited_token1":      deposited1,
     }
