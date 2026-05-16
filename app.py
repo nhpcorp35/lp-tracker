@@ -52,6 +52,27 @@ _alert_thread = None
 # Manual entry price storage — persists user-entered cost basis per position ID
 LP_ENTRIES_FILE = os.environ.get("LP_ENTRIES_FILE", "lp_entries.json")
 
+# Saved positions storage — persists position ID + chain across sessions
+SAVED_POSITIONS_FILE = os.environ.get("SAVED_POSITIONS_FILE", "saved_positions.json")
+
+
+def _load_saved_positions() -> list:
+    try:
+        if os.path.exists(SAVED_POSITIONS_FILE):
+            with open(SAVED_POSITIONS_FILE) as f:
+                return json.load(f)
+    except Exception as e:
+        app.logger.warning("Could not load saved positions: %s", e)
+    return []
+
+
+def _save_saved_positions(positions: list):
+    try:
+        with open(SAVED_POSITIONS_FILE, "w") as f:
+            json.dump(positions, f, indent=2)
+    except Exception as e:
+        app.logger.warning("Could not save saved positions: %s", e)
+
 
 def _load_lp_entries() -> dict:
     try:
@@ -801,6 +822,33 @@ def delete_lp_entry(position_id):
 def get_chains():
     """Return supported chains and their config (no secrets)."""
     return jsonify({k: {"name": v["name"]} for k, v in CHAINS.items()})
+
+
+@app.route("/api/saved-positions", methods=["GET"])
+def get_saved_positions():
+    return jsonify(_load_saved_positions())
+
+
+@app.route("/api/saved-positions", methods=["POST"])
+def add_saved_position():
+    body = request.get_json(silent=True) or {}
+    pos_id = str(body.get("id", "")).strip()
+    chain  = str(body.get("chain", "")).strip()
+    if not pos_id or not chain:
+        return jsonify({"error": "id and chain required"}), 400
+    saved = _load_saved_positions()
+    if not any(s["id"] == pos_id and s["chain"] == chain for s in saved):
+        saved.append({"id": pos_id, "chain": chain})
+        _save_saved_positions(saved)
+    return jsonify(saved)
+
+
+@app.route("/api/saved-positions/<pos_id>/<chain>", methods=["DELETE"])
+def delete_saved_position(pos_id, chain):
+    saved = [s for s in _load_saved_positions()
+             if not (s["id"] == pos_id and s["chain"] == chain)]
+    _save_saved_positions(saved)
+    return jsonify(saved)
 
 
 # ── Alert settings persistence ────────────────────────────────────────────────

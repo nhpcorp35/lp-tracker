@@ -1267,14 +1267,50 @@ function saveOptIn() {
   });
 }
 
-// ── Saved positions ───────────────────────────────────────────────────────────
+// ── Saved positions (server-side) ────────────────────────────────────────────
 
-function getSaved() {
-  try { return JSON.parse(localStorage.getItem('lp_saved') || '[]'); } catch { return []; }
+let _saved = [];  // in-memory cache of saved positions from server
+
+async function loadSaved() {
+  try {
+    const res = await fetch('/api/saved-positions');
+    if (res.ok) _saved = await res.json();
+  } catch(e) { console.warn('Could not load saved positions:', e); }
+  renderSavedChips();
 }
 
-function setSaved(arr) {
-  localStorage.setItem('lp_saved', JSON.stringify(arr));
+function getSaved() { return _saved; }
+
+async function toggleSavePosition() {
+  if (!_currentPositionId || !_currentChain) return;
+  const exists = _saved.find(s => s.id === _currentPositionId && s.chain === _currentChain);
+  if (exists) {
+    await removeSaved(_currentPositionId, _currentChain);
+  } else {
+    try {
+      const res = await fetch('/api/saved-positions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id: _currentPositionId, chain: _currentChain })
+      });
+      if (res.ok) _saved = await res.json();
+    } catch(e) { console.warn('Could not save position:', e); }
+    renderSavedChips();
+    updateSaveBtn();
+  }
+}
+
+async function removeSaved(id, chain) {
+  try {
+    const res = await fetch(`/api/saved-positions/${id}/${chain}`, { method: 'DELETE' });
+    if (res.ok) _saved = await res.json();
+  } catch(e) { console.warn('Could not remove saved position:', e); }
+  renderSavedChips();
+  updateSaveBtn();
+}
+
+function chainLabel(chain) {
+  return { 'base': 'Uni', 'base-pancake': 'Cake', 'ethereum': 'ETH', 'arbitrum': 'ARB' }[chain] || chain;
 }
 
 function renderSavedChips() {
@@ -1284,6 +1320,7 @@ function renderSavedChips() {
   if (!saved.length) {
     chips.innerHTML = '';
     empty.style.display = 'inline';
+    updateSaveBtn();
     return;
   }
   empty.style.display = 'none';
@@ -1292,45 +1329,18 @@ function renderSavedChips() {
       #${s.id} <span style="color:rgba(74,158,255,0.6)">${chainLabel(s.chain)}</span>
       <button class="saved-chip-remove" onclick="event.stopPropagation();removeSaved('${s.id}','${s.chain}')">×</button>
     </span>`).join('');
-  // Update save button state
   updateSaveBtn();
-}
-
-function chainLabel(chain) {
-  return { 'base': 'Uni', 'base-pancake': 'Cake', 'ethereum': 'ETH', 'arbitrum': 'ARB' }[chain] || chain;
 }
 
 function toggleSavedPanel() {
   const panel = document.getElementById('saved-panel');
   panel.classList.toggle('visible');
-  renderSavedChips();
-}
-
-function toggleSavePosition() {
-  if (!_currentPositionId || !_currentChain) return;
-  const saved = getSaved();
-  const exists = saved.find(s => s.id === _currentPositionId && s.chain === _currentChain);
-  if (exists) {
-    removeSaved(_currentPositionId, _currentChain);
-  } else {
-    saved.push({ id: _currentPositionId, chain: _currentChain });
-    setSaved(saved);
-    renderSavedChips();
-    updateSaveBtn();
-  }
-}
-
-function removeSaved(id, chain) {
-  const saved = getSaved().filter(s => !(s.id === id && s.chain === chain));
-  setSaved(saved);
-  renderSavedChips();
 }
 
 function updateSaveBtn() {
   const btn = document.getElementById('save-pos-btn');
   if (!_currentPositionId) return;
-  const saved = getSaved();
-  const exists = saved.find(s => s.id === _currentPositionId && s.chain === _currentChain);
+  const exists = _saved.find(s => s.id === _currentPositionId && s.chain === _currentChain);
   btn.textContent = exists ? '⭐ Saved' : '⭐ Save';
   btn.classList.toggle('saved', !!exists);
 }
@@ -1348,6 +1358,9 @@ loadAlertSettings();
 
 // Load LP entries on startup
 loadLpEntries();
+
+// Load saved positions from server on startup
+loadSaved();
 
 // Check URL params for wallet
 const params = new URLSearchParams(window.location.search);
