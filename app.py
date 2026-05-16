@@ -177,9 +177,11 @@ POOL_ABI = [
 ]
 
 
-def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int, chain: str) -> dict | None:
+def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int,
+                            chain: str, position_id: str | None = None) -> dict | None:
     """
-    Fetch feeGrowthGlobal and tick feeGrowthOutside directly from the pool contract.
+    Fetch feeGrowthGlobal, tick feeGrowthOutside, and (if position_id given)
+    feeGrowthInsideLast directly from on-chain contracts.
     This gives accurate, real-time data vs potentially stale subgraph values.
     Returns None if the RPC call fails.
     """
@@ -195,7 +197,7 @@ def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int,
         fg1          = pool.functions.feeGrowthGlobal1X128().call()
         lower_data   = pool.functions.ticks(tick_lower).call()
         upper_data   = pool.functions.ticks(tick_upper).call()
-        return {
+        result = {
             "fg0":        fg0,
             "fg1":        fg1,
             "fgo0_lower": lower_data[2],
@@ -203,6 +205,23 @@ def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int,
             "fgo0_upper": upper_data[2],
             "fgo1_upper": upper_data[3],
         }
+
+        # Also fetch feeGrowthInsideLast from NPM for accurate delta calculation.
+        # The subgraph value can lag, compressing the fee delta and undercounting fees.
+        npm_address = CHAINS.get(chain, {}).get("npm")
+        if position_id and npm_address:
+            try:
+                npm = web3.eth.contract(
+                    address=Web3.to_checksum_address(npm_address),
+                    abi=NPM_ABI,
+                )
+                pos_data = npm.functions.positions(int(position_id)).call()
+                result["fg0_last"] = pos_data[8]   # feeGrowthInside0LastX128
+                result["fg1_last"] = pos_data[9]   # feeGrowthInside1LastX128
+            except Exception as e:
+                app.logger.warning("NPM positions() call failed for #%s: %s", position_id, e)
+
+        return result
     except Exception as e:
         app.logger.warning("On-chain fee data fetch failed for %s on %s: %s", pool_address, chain, e)
         return None
@@ -577,9 +596,11 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
     tick_upper   = _get_tick(pos["tickUpper"])
 
     # ── On-chain fee data override ─────────────────────────────────────────
-    # Subgraph feeGrowthGlobal and tick data can be stale, giving $0 fees.
-    # Fetch current values directly from the pool contract for accuracy.
-    onchain = _fetch_onchain_fee_data(pool["id"], tick_lower, tick_upper, chain)
+    # Subgraph feeGrowthGlobal, tick data, and feeGrowthInsideLast can be stale,
+    # giving $0 or understated fees. Fetch current values from pool + NPM contracts.
+    onchain = _fetch_onchain_fee_data(
+        pool["id"], tick_lower, tick_upper, chain, position_id=pos.get("id")
+    )
     if onchain:
         pool = dict(pool)
         pool["feeGrowthGlobal0X128"] = str(onchain["fg0"])
@@ -595,6 +616,11 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
             "feeGrowthOutside0X128": str(onchain["fgo0_upper"]),
             "feeGrowthOutside1X128": str(onchain["fgo1_upper"]),
         }
+        # Use on-chain feeGrowthInsideLast if NPM call succeeded — more accurate
+        # than subgraph which can lag and compress the fee delta
+        if "fg0_last" in onchain:
+            pos["feeGrowthInside0LastX128"] = str(onchain["fg0_last"])
+            pos["feeGrowthInside1LastX128"] = str(onchain["fg1_last"])
 
     sqrt_price_x96 = int(pool.get("sqrtPrice") or 0)
 
