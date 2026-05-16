@@ -489,22 +489,23 @@
   .error-banner.visible { display: block; }
 
   /* ── Responsive ───────────────────────────────────────────────── */
-  .chain-selector { display: flex; gap: 4px; }
+  .chain-selector { display: flex; gap: 4px; align-items: center; }
+  .chain-selector-label { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-right: 4px; white-space: nowrap; }
   .chain-btn {
-    padding: 6px 12px;
-    border-radius: 6px;
+    padding: 4px 8px;
+    border-radius: 5px;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 500;
     cursor: pointer;
-    border: 1px solid var(--border2);
-    background: var(--surface);
+    border: 1px solid var(--border);
+    background: transparent;
     color: var(--muted);
     letter-spacing: 0.04em;
     transition: all 0.15s;
   }
-  .chain-btn:hover { color: var(--text); border-color: var(--blue); }
-  .chain-btn.active { background: var(--blue-dim); color: var(--blue); border-color: var(--blue); }
+  .chain-btn:hover { color: var(--text); border-color: var(--border2); }
+  .chain-btn.active { background: var(--blue-dim); color: var(--blue); border-color: rgba(74,158,255,0.3); }
     header { padding: 12px 16px; }
     main   { padding: 16px; }
     #positions-grid { grid-template-columns: 1fr; }
@@ -567,10 +568,11 @@
 <header>
   <div class="logo">LP Tracker</div>
   <div class="chain-selector">
-    <button class="chain-btn active" onclick="selectChain('base')"         id="chain-base">Base (Uni)</button>
-    <button class="chain-btn"        onclick="selectChain('base-pancake')" id="chain-base-pancake">Base (Cake)</button>
-    <button class="chain-btn"        onclick="selectChain('ethereum')"     id="chain-ethereum">Ethereum</button>
-    <button class="chain-btn"        onclick="selectChain('arbitrum')"     id="chain-arbitrum">Arbitrum</button>
+    <span class="chain-selector-label">Filter:</span>
+    <button class="chain-btn active" onclick="selectChain('base')"         id="chain-base">Base</button>
+    <button class="chain-btn"        onclick="selectChain('base-pancake')" id="chain-base-pancake">Cake</button>
+    <button class="chain-btn"        onclick="selectChain('ethereum')"     id="chain-ethereum">ETH</button>
+    <button class="chain-btn"        onclick="selectChain('arbitrum')"     id="chain-arbitrum">ARB</button>
   </div>
   <div class="wallet-form">
     <input
@@ -915,6 +917,11 @@ function buildCard(pos) {
     ? new Date(pos.entry_timestamp * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : '';
 
+  // Range width as ± % from midpoint
+  const rangeMid = (pos.price_lower + pos.price_upper) / 2;
+  const rangeHalfPct = rangeMid > 0 ? ((pos.price_upper - pos.price_lower) / 2 / rangeMid * 100) : null;
+  const rangeWidthStr = rangeHalfPct != null ? `±${fmt(rangeHalfPct, 1)}%` : '—';
+
   return `
   <div class="${cardClass}">
     <div class="card-header">
@@ -963,10 +970,14 @@ function buildCard(pos) {
 
       <div class="divider"></div>
 
-      <div class="stats">
+      <div class="stats" style="grid-template-columns: repeat(4, 1fr)">
         <div class="stat">
           <div class="stat-label">APR (est.)</div>
           <div class="stat-value ${aprClass}">${aprStr}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Range Width</div>
+          <div class="stat-value muted">${rangeWidthStr}</div>
         </div>
         <div class="stat">
           <div class="stat-label">Imp. Loss</div>
