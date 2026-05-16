@@ -1031,7 +1031,31 @@ def delete_lp_entry(position_id):
     return jsonify({"ok": True, "removed": removed is not None})
 
 
-@app.route("/api/chains")
+@app.route("/api/debug/fees/<position_id>")
+def debug_fees(position_id):
+    """Debug endpoint to check on-chain fee data for a position."""
+    chain = request.args.get("chain", "base")
+    try:
+        web3 = _get_w3(chain)
+        if not web3:
+            return jsonify({"error": "No web3 for chain"}), 400
+
+        npm_address = CHAINS.get(chain, {}).get("npm")
+        npm = web3.eth.contract(address=Web3.to_checksum_address(npm_address), abi=NPM_ABI)
+        pos_data = npm.functions.positions(int(position_id)).call()
+
+        return jsonify({
+            "position_id": position_id,
+            "chain": chain,
+            "npm_address": npm_address,
+            "liquidity": str(pos_data[7]),
+            "feeGrowthInside0LastX128": str(pos_data[8]),
+            "feeGrowthInside1LastX128": str(pos_data[9]),
+            "tokensOwed0": str(pos_data[10]),
+            "tokensOwed1": str(pos_data[11]),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "npm_address": CHAINS.get(chain, {}).get("npm")}), 500
 def get_chains():
     """Return supported chains and their config (no secrets)."""
     return jsonify({k: {"name": v["name"]} for k, v in CHAINS.items()})
