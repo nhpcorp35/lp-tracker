@@ -1398,6 +1398,10 @@ async function loadSavedPosition(id, chain) {
   await loadPositions();
 }
 
+// Ensure panels are closed on startup
+document.getElementById('alert-panel').classList.remove('visible');
+document.getElementById('saved-panel').classList.remove('visible');
+
 // Load alert settings on startup
 loadAlertSettings();
 
