@@ -131,6 +131,82 @@ Q128 = 2 ** 128
 
 w3 = Web3(Web3.HTTPProvider(ALCHEMY_BASE)) if ALCHEMY_BASE else None
 
+# Per-chain Web3 cache
+_w3_cache: dict = {}
+
+def _get_w3(chain: str):
+    if chain not in _w3_cache:
+        rpc = CHAINS.get(chain, {}).get("rpc", "")
+        if rpc:
+            _w3_cache[chain] = Web3(Web3.HTTPProvider(rpc))
+    return _w3_cache.get(chain)
+
+
+# Uniswap V3 Pool ABI — only the functions we need for fee calculation
+POOL_ABI = [
+    {
+        "inputs": [],
+        "name": "feeGrowthGlobal0X128",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "feeGrowthGlobal1X128",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [{"internalType": "int24", "name": "tick", "type": "int24"}],
+        "name": "ticks",
+        "outputs": [
+            {"internalType": "uint128", "name": "liquidityGross",                  "type": "uint128"},
+            {"internalType": "int128",  "name": "liquidityNet",                    "type": "int128"},
+            {"internalType": "uint256", "name": "feeGrowthOutside0X128",           "type": "uint256"},
+            {"internalType": "uint256", "name": "feeGrowthOutside1X128",           "type": "uint256"},
+            {"internalType": "int56",   "name": "tickCumulativeOutside",           "type": "int56"},
+            {"internalType": "uint160", "name": "secondsPerLiquidityOutsideX128", "type": "uint160"},
+            {"internalType": "uint32",  "name": "secondsOutside",                 "type": "uint32"},
+            {"internalType": "bool",    "name": "initialized",                    "type": "bool"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+
+def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int, chain: str) -> dict | None:
+    """
+    Fetch feeGrowthGlobal and tick feeGrowthOutside directly from the pool contract.
+    This gives accurate, real-time data vs potentially stale subgraph values.
+    Returns None if the RPC call fails.
+    """
+    try:
+        web3 = _get_w3(chain)
+        if not web3:
+            return None
+        pool = web3.eth.contract(
+            address=Web3.to_checksum_address(pool_address),
+            abi=POOL_ABI,
+        )
+        fg0          = pool.functions.feeGrowthGlobal0X128().call()
+        fg1          = pool.functions.feeGrowthGlobal1X128().call()
+        lower_data   = pool.functions.ticks(tick_lower).call()
+        upper_data   = pool.functions.ticks(tick_upper).call()
+        return {
+            "fg0":        fg0,
+            "fg1":        fg1,
+            "fgo0_lower": lower_data[2],
+            "fgo1_lower": lower_data[3],
+            "fgo0_upper": upper_data[2],
+            "fgo1_upper": upper_data[3],
+        }
+    except Exception as e:
+        app.logger.warning("On-chain fee data fetch failed for %s on %s: %s", pool_address, chain, e)
+        return None
+
 NPM_ABI = [
     {
         "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
@@ -484,10 +560,11 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
 
 # ── Position enrichment ───────────────────────────────────────────────────────
 
-def enrich_position(pos: dict) -> dict:
+def enrich_position(pos: dict, chain: str = "base") -> dict:
     """
     Add calculated fields to a raw subgraph position:
     amount0, amount1, fees0, fees1, value_usd, il, apr, range_status, prices.
+    Uses on-chain pool data for accurate fee calculation.
     """
     pool = pos["pool"]
     t0   = pool["token0"]
@@ -498,6 +575,26 @@ def enrich_position(pos: dict) -> dict:
     tick_current = int(pool.get("tick") or 0)
     tick_lower   = _get_tick(pos["tickLower"])
     tick_upper   = _get_tick(pos["tickUpper"])
+
+    # ── On-chain fee data override ─────────────────────────────────────────
+    # Subgraph feeGrowthGlobal and tick data can be stale, giving $0 fees.
+    # Fetch current values directly from the pool contract for accuracy.
+    onchain = _fetch_onchain_fee_data(pool["id"], tick_lower, tick_upper, chain)
+    if onchain:
+        pool = dict(pool)
+        pool["feeGrowthGlobal0X128"] = str(onchain["fg0"])
+        pool["feeGrowthGlobal1X128"] = str(onchain["fg1"])
+        pos = dict(pos)
+        pos["tickLower"] = {
+            "tickIdx": tick_lower,
+            "feeGrowthOutside0X128": str(onchain["fgo0_lower"]),
+            "feeGrowthOutside1X128": str(onchain["fgo1_lower"]),
+        }
+        pos["tickUpper"] = {
+            "tickIdx": tick_upper,
+            "feeGrowthOutside0X128": str(onchain["fgo0_upper"]),
+            "feeGrowthOutside1X128": str(onchain["fgo1_upper"]),
+        }
 
     sqrt_price_x96 = int(pool.get("sqrtPrice") or 0)
 
@@ -736,7 +833,7 @@ def get_positions():
                 enriched = []
                 for pos in raws:
                     try:
-                        e = enrich_position(pos)
+                        e = enrich_position(pos, c)
                         e["chain"] = c
                         enriched.append(e)
                     except Exception as ex:
@@ -778,11 +875,11 @@ def get_positions():
     enriched = []
     for pos in raw_positions:
         try:
-            e = enrich_position(pos)
+            e = enrich_position(pos, chain)
             e["chain"] = chain
             enriched.append(e)
-        except Exception as e:
-            app.logger.warning("Failed to enrich position %s: %s", pos.get("id"), e)
+        except Exception as ex:
+            app.logger.warning("Failed to enrich position %s: %s", pos.get("id"), ex)
 
     enriched.sort(key=lambda p: p.get("value_usd", 0), reverse=True)
     _cache[cache_key] = {"positions": enriched, "fetched_at": time.time()}
@@ -828,7 +925,7 @@ def get_position_by_id(position_id):
                             "chain": "auto", "message": f"Position #{position_id} not found on any chain"})
 
         try:
-            enriched = enrich_position(detected_pos)
+            enriched = enrich_position(detected_pos, detected_chain)
             enriched["chain"] = detected_chain
             positions = [enriched]
         except Exception as e:
@@ -856,7 +953,7 @@ def get_position_by_id(position_id):
                         "chain": chain, "message": f"Position #{position_id} not found"})
 
     try:
-        enriched = enrich_position(raw)
+        enriched = enrich_position(raw, chain)
         enriched["chain"] = chain
         positions = [enriched]
     except Exception as e:
@@ -1088,7 +1185,7 @@ def _alert_poll_loop():
                 try:
                     raw = query_by_id(pos_id, chain)
                     if raw:
-                        enriched = enrich_position(raw)
+                        enriched = enrich_position(raw, chain)
                         _check_and_alert(enriched, chain, settings)
                 except Exception as e:
                     app.logger.warning("Alert poll error for %s: %s", pos_id, e)
