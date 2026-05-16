@@ -102,13 +102,13 @@ CHAINS = {
         "name":        "Base (Uniswap V3)",
         "subgraph_id": "HMuAwufqZ1YCRmzL2SfHTVkzZovC9VL2UAKhjvRqKiR1",
         "rpc":         ALCHEMY_BASE,
-        "npm":         "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+        "npm":         "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f9",
     },
     "base-pancake": {
         "name":        "Base (PancakeSwap V3)",
         "subgraph_id": "BHWNsedAHtmTCzXxCCDfhPmm6iN9rxUhoRHdHKyujic3",
         "rpc":         ALCHEMY_BASE,
-        "npm":         "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+        "npm":         "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364",
     },
     "ethereum": {
         "name":        "Ethereum",
