@@ -216,8 +216,10 @@ def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int,
                     abi=NPM_ABI,
                 )
                 pos_data = npm.functions.positions(int(position_id)).call()
-                result["fg0_last"] = pos_data[8]   # feeGrowthInside0LastX128
-                result["fg1_last"] = pos_data[9]   # feeGrowthInside1LastX128
+                result["fg0_last"]     = pos_data[8]   # feeGrowthInside0LastX128
+                result["fg1_last"]     = pos_data[9]   # feeGrowthInside1LastX128
+                result["tokens_owed0"] = pos_data[10]  # settled fees not yet collected
+                result["tokens_owed1"] = pos_data[11]
             except Exception as e:
                 app.logger.warning("NPM positions() call failed for #%s: %s", position_id, e)
 
@@ -354,6 +356,12 @@ def calculate_fee_amounts(
 
         fee0 = raw_fee0 / (10 ** decimals0)
         fee1 = raw_fee1 / (10 ** decimals1)
+
+        # Add settled fees (tokensOwed) — accumulated when liquidity was modified
+        owed0 = position.get("_tokens_owed0", 0) or 0
+        owed1 = position.get("_tokens_owed1", 0) or 0
+        fee0 += owed0 / (10 ** decimals0)
+        fee1 += owed1 / (10 ** decimals1)
 
         # Sanity cap: if fees are implausibly large vs liquidity, subgraph data
         # is stale or corrupt. Cap at 0 rather than show phantom fees.
@@ -621,6 +629,10 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         if "fg0_last" in onchain:
             pos["feeGrowthInside0LastX128"] = str(onchain["fg0_last"])
             pos["feeGrowthInside1LastX128"] = str(onchain["fg1_last"])
+        # Include settled fees (tokensOwed) — set when liquidity is added/removed
+        if "tokens_owed0" in onchain:
+            pos["_tokens_owed0"] = onchain["tokens_owed0"]
+            pos["_tokens_owed1"] = onchain["tokens_owed1"]
 
     sqrt_price_x96 = int(pool.get("sqrtPrice") or 0)
 
