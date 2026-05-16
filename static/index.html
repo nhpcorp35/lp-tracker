@@ -908,6 +908,9 @@ function buildCard(pos) {
     ? `https://pancakeswap.finance/liquidity/${pos.id}`
     : `https://app.uniswap.org/pools/${pos.id}`;
   const age = pos.entry_timestamp ? timeAgo(pos.entry_timestamp) : '';
+  const openDate = pos.entry_timestamp
+    ? new Date(pos.entry_timestamp * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '';
 
   return `
   <div class="${cardClass}">
@@ -969,6 +972,7 @@ function buildCard(pos) {
         <div class="stat">
           <div class="stat-label">Position Age</div>
           <div class="stat-value muted">${age || '—'}</div>
+          ${openDate ? `<div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:1px">${openDate}</div>` : ''}
         </div>
       </div>
 

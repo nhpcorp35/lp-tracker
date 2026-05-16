@@ -228,13 +228,6 @@ def calculate_fee_amounts(
         fg0_last = int(position.get("feeGrowthInside0LastX128", 0) or 0)
         fg1_last = int(position.get("feeGrowthInside1LastX128", 0) or 0)
 
-        # Guard: if both feeGrowthInsideLast values are 0, the subgraph hasn't
-        # indexed this position yet (brand new position). Computing against a 0
-        # baseline would yield the pool's entire lifetime fee accumulation as
-        # phantom fees. Return 0 until the subgraph catches up.
-        if fg0_last == 0 and fg1_last == 0:
-            return 0.0, 0.0
-
         raw_fee0 = (fgi0 - fg0_last) % MOD * L // Q128
         raw_fee1 = (fgi1 - fg1_last) % MOD * L // Q128
 
@@ -533,7 +526,7 @@ def enrich_position(pos: dict) -> dict:
         if entry_ts and fees_usd > 0:
             age_years = max((time.time() - entry_ts) / (365.25 * 24 * 3600), 1e-9)
             max_fees_usd = value_usd * 5.0 * age_years  # 500% APR ceiling
-            if fees_usd > max(max_fees_usd, 0.50):
+            if fees_usd > max_fees_usd:
                 app.logger.warning(
                     "Fee time-sanity cap: pos=%s fees_usd=%.2f max=%.4f age_years=%.6f — zeroing fees",
                     pos["id"], fees_usd, max_fees_usd, age_years,
