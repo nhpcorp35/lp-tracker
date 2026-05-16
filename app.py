@@ -52,8 +52,12 @@ _alert_thread = None
 # Manual entry price storage — persists user-entered cost basis per position ID
 LP_ENTRIES_FILE = os.environ.get("LP_ENTRIES_FILE", "lp_entries.json")
 
-# Saved positions storage — persists position ID + chain across sessions
-SAVED_POSITIONS_FILE = os.environ.get("SAVED_POSITIONS_FILE", "saved_positions.json")
+# Saved positions — stored in same directory as lp_entries.json (Railway volume)
+_data_dir = os.path.dirname(os.path.abspath(LP_ENTRIES_FILE))
+SAVED_POSITIONS_FILE = os.environ.get(
+    "SAVED_POSITIONS_FILE",
+    os.path.join(_data_dir, "saved_positions.json")
+)
 
 
 def _load_saved_positions() -> list:
