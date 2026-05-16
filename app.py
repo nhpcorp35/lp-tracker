@@ -10,6 +10,7 @@ import math
 import logging
 import requests
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from web3 import Web3
@@ -712,18 +713,52 @@ def index():
 @app.route("/api/positions")
 def get_positions():
     """
-    GET /api/positions?wallet=0x...&chain=base|ethereum|arbitrum
-    Returns enriched Uniswap V3 positions for the given wallet and chain.
+    GET /api/positions?wallet=0x...&chain=base|ethereum|arbitrum|all
+    chain=all queries all chains in parallel and merges results.
     Cached for CACHE_TTL seconds.
     """
     wallet = request.args.get("wallet", "").strip().lower()
-    chain  = request.args.get("chain", "base").strip().lower()
-
-    if chain not in CHAINS:
-        return jsonify({"error": f"Unsupported chain: {chain}. Use: {', '.join(CHAINS)}"}), 400
+    chain  = request.args.get("chain", "all").strip().lower()
 
     if not wallet or len(wallet) != 42 or not wallet.startswith("0x"):
         return jsonify({"error": "Invalid wallet address"}), 400
+
+    if chain == "all":
+        cache_key = f"all:{wallet}"
+        cached = _cache.get(cache_key)
+        if cached and time.time() - cached["fetched_at"] < CACHE_TTL:
+            return jsonify({"positions": cached["positions"], "cached": True,
+                            "fetched_at": cached["fetched_at"], "chain": "all"})
+
+        def fetch_chain(c):
+            try:
+                raws = query_subgraph(wallet, c)
+                enriched = []
+                for pos in raws:
+                    try:
+                        e = enrich_position(pos)
+                        e["chain"] = c
+                        enriched.append(e)
+                    except Exception as ex:
+                        app.logger.warning("Failed to enrich %s on %s: %s", pos.get("id"), c, ex)
+                return enriched
+            except Exception as ex:
+                app.logger.warning("Chain %s query failed: %s", c, ex)
+                return []
+
+        all_positions = []
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(fetch_chain, c): c for c in CHAINS}
+            for future in as_completed(futures):
+                all_positions.extend(future.result())
+
+        all_positions.sort(key=lambda p: p.get("value_usd", 0), reverse=True)
+        _cache[cache_key] = {"positions": all_positions, "fetched_at": time.time()}
+        return jsonify({"positions": all_positions, "cached": False,
+                        "fetched_at": time.time(), "chain": "all"})
+
+    if chain not in CHAINS:
+        return jsonify({"error": f"Unsupported chain: {chain}. Use: {', '.join(CHAINS)} or all"}), 400
 
     cache_key = f"{chain}:{wallet}"
     cached = _cache.get(cache_key)
@@ -743,17 +778,14 @@ def get_positions():
     enriched = []
     for pos in raw_positions:
         try:
-            enriched.append(enrich_position(pos))
+            e = enrich_position(pos)
+            e["chain"] = chain
+            enriched.append(e)
         except Exception as e:
             app.logger.warning("Failed to enrich position %s: %s", pos.get("id"), e)
 
     enriched.sort(key=lambda p: p.get("value_usd", 0), reverse=True)
-
-    _cache[cache_key] = {
-        "positions": enriched,
-        "fetched_at": time.time(),
-    }
-
+    _cache[cache_key] = {"positions": enriched, "fetched_at": time.time()}
     app.logger.info("Fetched %d positions for %s on %s", len(enriched), wallet, chain)
     return jsonify({"positions": enriched, "cached": False,
                     "fetched_at": time.time(), "chain": chain})
@@ -762,10 +794,51 @@ def get_positions():
 @app.route("/api/position/<position_id>")
 def get_position_by_id(position_id):
     """
-    GET /api/position/1920209?chain=base-pancake
-    Fetch a single position by token ID — works even when staked in MasterChef.
+    GET /api/position/1920209?chain=base-pancake|auto
+    chain=auto queries all chains in parallel and returns the first match.
     """
-    chain = request.args.get("chain", "base").strip().lower()
+    chain = request.args.get("chain", "auto").strip().lower()
+
+    if chain == "auto":
+        cache_key = f"id:auto:{position_id}"
+        cached = _cache.get(cache_key)
+        if cached and time.time() - cached["fetched_at"] < CACHE_TTL:
+            return jsonify({"positions": cached["positions"], "cached": True,
+                            "fetched_at": cached["fetched_at"], "chain": cached.get("detected_chain", "auto")})
+
+        detected_chain = None
+        detected_pos   = None
+
+        def try_chain(c):
+            try:
+                return c, query_by_id(position_id, c)
+            except Exception:
+                return c, None
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(try_chain, c): c for c in CHAINS}
+            for future in as_completed(futures):
+                c, raw = future.result()
+                if raw and detected_pos is None:
+                    detected_chain = c
+                    detected_pos   = raw
+
+        if not detected_pos:
+            return jsonify({"positions": [], "cached": False, "fetched_at": time.time(),
+                            "chain": "auto", "message": f"Position #{position_id} not found on any chain"})
+
+        try:
+            enriched = enrich_position(detected_pos)
+            enriched["chain"] = detected_chain
+            positions = [enriched]
+        except Exception as e:
+            app.logger.error("Failed to enrich position #%s: %s", position_id, e)
+            return jsonify({"error": str(e)}), 500
+
+        _cache[cache_key] = {"positions": positions, "fetched_at": time.time(), "detected_chain": detected_chain}
+        return jsonify({"positions": positions, "cached": False,
+                        "fetched_at": time.time(), "chain": detected_chain})
+
     if chain not in CHAINS:
         return jsonify({"error": f"Unsupported chain: {chain}"}), 400
 
@@ -784,6 +857,7 @@ def get_position_by_id(position_id):
 
     try:
         enriched = enrich_position(raw)
+        enriched["chain"] = chain
         positions = [enriched]
     except Exception as e:
         app.logger.error("Failed to enrich position #%s: %s", position_id, e)

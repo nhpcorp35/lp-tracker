@@ -710,6 +710,8 @@ let lastFetched = null;
 let lpEntries = {};  // position_id -> {entry_usd, notes}
 let _entryModalPositionId = null;
 
+const CHAINS = { 'base': 1, 'base-pancake': 1, 'ethereum': 1, 'arbitrum': 1 };
+
 async function loadLpEntries() {
   try {
     const res = await fetch('/api/lp-entries');
@@ -758,12 +760,12 @@ async function clearLpEntry() {
 
 let lastPositions = [];
 
-function selectChain(chain) {
+function selectChain(chain, reload = true) {
   currentChain = chain;
   document.querySelectorAll('.chain-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(`chain-${chain}`).classList.add('active');
-  // If wallet already loaded, re-fetch for new chain
-  if (currentWallet) loadPositions();
+  const btn = document.getElementById(`chain-${chain}`);
+  if (btn) btn.classList.add('active');
+  if (reload && currentWallet) loadPositions();
 }
 
 function fmt(n, dec=2) {
@@ -1067,8 +1069,8 @@ async function loadPositions(forceRefresh = false) {
 
   try {
     const url = isPositionId
-      ? `/api/position/${input}?chain=${currentChain}`
-      : `/api/positions?wallet=${encodeURIComponent(input)}&chain=${currentChain}${forceRefresh ? '&refresh=1' : ''}`;
+      ? `/api/position/${input}?chain=auto`
+      : `/api/positions?wallet=${encodeURIComponent(input)}&chain=all${forceRefresh ? '&refresh=1' : ''}`;
 
     const res = await fetch(url);
     const data = await res.json();
@@ -1086,6 +1088,11 @@ async function loadPositions(forceRefresh = false) {
 
     const positions = data.positions || [];
     lastFetched = data.fetched_at;
+
+    // Sync chain selector to detected/returned chain
+    if (data.chain && data.chain !== 'all' && CHAINS[data.chain]) {
+      selectChain(data.chain, false); // false = don't re-fetch
+    }
 
     if (positions.length === 0) {
       setStatus('No active positions found', 'warn');
