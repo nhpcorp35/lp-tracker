@@ -1297,6 +1297,30 @@ async function loadSaved() {
     if (res.ok) _saved = await res.json();
   } catch(e) { console.warn('Could not load saved positions:', e); }
   renderSavedChips();
+
+  // Auto-load all saved positions on startup if nothing is loaded yet
+  if (_saved.length > 0 && !currentWallet) {
+    for (const s of _saved) {
+      try {
+        const url = `/api/position/${s.id}?chain=${s.chain}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.positions && data.positions.length > 0) {
+          data.positions.forEach(p => p.chain = s.chain);
+          lastPositions = [...lastPositions, ...data.positions];
+        }
+      } catch(e) { console.warn('Auto-load failed for', s.id, e); }
+    }
+    if (lastPositions.length > 0) {
+      await loadLpEntries();
+      renderSummary(lastPositions);
+      renderGrid(lastPositions);
+      const inRange = lastPositions.filter(p => p.in_range).length;
+      setStatus(`${lastPositions.length} position${lastPositions.length !== 1 ? 's' : ''} · ${inRange} in range · updated just now`, 'ok');
+      document.getElementById('summary').style.display = 'block';
+      document.getElementById('refresh-btn').style.display = 'block';
+    }
+  }
 }
 
 function getSaved() { return _saved; }
