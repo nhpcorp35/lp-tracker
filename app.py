@@ -534,61 +534,6 @@ query GetPositionById($id: ID!) {
 """
 
 
-# ── vfat Sickle support ───────────────────────────────────────────────────────
-# vfat deploys a personal "Sickle" contract per user via SickleFactory.
-# LP positions are owned by the Sickle, not the user wallet directly.
-# We look up the Sickle address and merge those positions transparently.
-
-SICKLE_FACTORY = {
-    "base":         "0x4f5e439B7FaA9d71bEBf10ecdB28fE7e4e47D3c3",
-    "base-pancake": "0x4f5e439B7FaA9d71bEBf10ecdB28fE7e4e47D3c3",  # same factory on Base
-    "arbitrum":     "0x4f5e439B7FaA9d71bEBf10ecdB28fE7e4e47D3c3",
-    "ethereum":     "0x4f5e439B7FaA9d71bEBf10ecdB28fE7e4e47D3c3",
-}
-
-SICKLE_FACTORY_ABI = [
-    {
-        "inputs": [{"internalType": "address", "name": "owner", "type": "address"}],
-        "name": "sickles",
-        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
-        "stateMutability": "view",
-        "type": "function",
-    }
-]
-
-_sickle_cache: dict = {}  # { "chain:wallet" -> sickle_address or None }
-
-
-def get_sickle_address(wallet: str, chain: str) -> str | None:
-    """Return the vfat Sickle contract address for a wallet, or None if not deployed."""
-    cache_key = f"{chain}:{wallet.lower()}"
-    if cache_key in _sickle_cache:
-        return _sickle_cache[cache_key]
-
-    factory_addr = SICKLE_FACTORY.get(chain)
-    w3c = _get_w3(chain)
-    if not factory_addr or not w3c:
-        _sickle_cache[cache_key] = None
-        return None
-
-    try:
-        factory = w3c.eth.contract(
-            address=Web3.to_checksum_address(factory_addr),
-            abi=SICKLE_FACTORY_ABI,
-        )
-        sickle = factory.functions.sickles(Web3.to_checksum_address(wallet)).call()
-        # Zero address means no Sickle deployed
-        result = sickle if sickle and sickle != "0x0000000000000000000000000000000000000000" else None
-        _sickle_cache[cache_key] = result
-        if result:
-            app.logger.info("vfat Sickle for %s on %s: %s", wallet, chain, result)
-        return result
-    except Exception as e:
-        app.logger.warning("Sickle lookup failed for %s on %s: %s", wallet, chain, e)
-        _sickle_cache[cache_key] = None
-        return None
-
-
 def query_subgraph(wallet: str, chain: str = "base") -> list:
     """Query The Graph for Uniswap V3 positions owned by a wallet."""
     cfg = CHAINS.get(chain, CHAINS["base"])
@@ -936,20 +881,11 @@ def get_positions():
         def fetch_chain(c):
             try:
                 raws = query_subgraph(wallet, c)
-                # Merge vfat Sickle positions
-                sickle = get_sickle_address(wallet, c)
-                if sickle:
-                    sickle_raws = query_subgraph(sickle.lower(), c)
-                    for p in sickle_raws:
-                        p["_vfat"] = True
-                    raws = raws + sickle_raws
                 enriched = []
                 for pos in raws:
                     try:
                         e = enrich_position(pos, c)
                         e["chain"] = c
-                        if pos.get("_vfat"):
-                            e["_vfat"] = True
                         enriched.append(e)
                     except Exception as ex:
                         app.logger.warning("Failed to enrich %s on %s: %s", pos.get("id"), c, ex)
@@ -981,17 +917,6 @@ def get_positions():
 
     app.logger.info("Fetching positions for %s on %s", wallet, chain)
     raw_positions = query_subgraph(wallet, chain)
-
-    # Also check for vfat Sickle positions — transparently merged in
-    sickle_addr = get_sickle_address(wallet, chain)
-    if sickle_addr:
-        sickle_positions = query_subgraph(sickle_addr.lower(), chain)
-        if sickle_positions:
-            app.logger.info("Found %d vfat Sickle positions for %s", len(sickle_positions), wallet)
-            # Tag them so frontend can show a vfat badge if desired
-            for p in sickle_positions:
-                p["_vfat"] = True
-            raw_positions = raw_positions + sickle_positions
 
     if not raw_positions:
         return jsonify({"positions": [], "cached": False,
