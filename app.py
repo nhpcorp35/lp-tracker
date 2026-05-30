@@ -11,7 +11,7 @@ import logging
 import requests
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 from web3 import Web3
 from dotenv import load_dotenv
@@ -20,6 +20,24 @@ load_dotenv()
 
 app = Flask(__name__, static_folder="static")
 CORS(app)
+
+# ── Basic Auth ────────────────────────────────────────────────────────────────
+import base64 as _b64, os as _os
+_PASSWORD = _os.environ.get("PASSWORD", "")
+
+@app.before_request
+def require_auth():
+    if not _PASSWORD:
+        return
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Basic "):
+        try:
+            _, pw = _b64.b64decode(auth[6:]).decode().split(":", 1)
+            if pw == _PASSWORD:
+                return
+        except Exception:
+            pass
+    return Response("Unauthorized", 401, {"WWW-Authenticate": 'Basic realm="LP Tracker"'})
 
 logging.basicConfig(level=logging.INFO)
 
