@@ -906,6 +906,9 @@ function buildCard(pos) {
 
   const aprStr = pos.apr_estimate != null ? fmtPct(pos.apr_estimate) + ' APR' : '—';
   const aprClass = pos.apr_estimate == null ? 'muted' : pos.apr_estimate >= 10 ? 'green' : pos.apr_estimate >= 3 ? 'amber' : 'red';
+  const advAprStr = pos.advertised_apr != null ? fmtPct(pos.advertised_apr) : '—';
+  const realAprStr = pos.real_apr != null ? fmtPct(pos.real_apr) : '—';
+  const realAprClass = pos.real_apr == null ? 'muted' : pos.real_apr >= 10 ? 'green' : pos.real_apr >= 0 ? 'amber' : 'red';
 
   const feesUsd = fmtUsd(pos.fees_usd);
   const fee0Str = `${fmtToken(pos.fee0, pos.token0.symbol)} ${pos.token0.symbol}`;
@@ -975,8 +978,12 @@ function buildCard(pos) {
 
       <div class="stats" style="grid-template-columns: repeat(4, 1fr)">
         <div class="stat">
-          <div class="stat-label">APR (est.)</div>
-          <div class="stat-value ${aprClass}">${aprStr}</div>
+          <div class="stat-label">APR</div>
+          <div class="stat-value" style="font-size:12px;line-height:1.5;">
+            <div><span class="muted" style="font-size:10px;">POOL</span> <span style="color:var(--text)">${advAprStr}</span></div>
+            <div><span class="muted" style="font-size:10px;">YOURS</span> <span class="${aprClass}">${aprStr}</span></div>
+            <div><span class="muted" style="font-size:10px;">REAL</span> <span class="${realAprClass}">${realAprStr}</span></div>
+          </div>
         </div>
         <div class="stat">
           <div class="stat-label">Range Width</div>

@@ -700,18 +700,23 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
     # ── Range status ───────────────────────────────────────────────────────
     in_range = tick_lower <= tick_current < tick_upper
 
-    # ── APR estimate from pool's 7d fee data ──────────────────────────────
-    apr_estimate = None
+    # ── APR calculations ──────────────────────────────────────────────────
+    apr_estimate = None    # position-specific fee APR (real fees earned)
+    advertised_apr = None  # pool-level APR (what protocols advertise)
     day_data = pool.get("poolDayData", [])
+    pool_tvl = float(pool.get("totalValueLockedUSD") or 0)
+
     if day_data and value_usd > 0:
         try:
             total_fees_7d = sum(float(d.get("feesUSD", 0)) for d in day_data)
             avg_daily_fees = total_fees_7d / max(len(day_data), 1)
 
-            # Use liquidity share for APR — much more accurate for narrow ranges.
-            # Position liquidity / pool total liquidity = position's fee share
-            # when price is in range. The subgraph's `liquidity` field on the
-            # pool is the current active (in-range) liquidity.
+            # Advertised APR: pool-level (what Uniswap/PancakeSwap UI shows)
+            # = annualized pool fees / pool TVL
+            if pool_tvl > 0:
+                advertised_apr = (avg_daily_fees * 365 / pool_tvl) * 100
+
+            # Position-specific APR: uses liquidity share for accuracy
             pos_liquidity = int(pos.get("liquidity", 0))
             pool_liquidity = int(pool.get("liquidity") or 0)
 
@@ -719,9 +724,7 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
                 share = pos_liquidity / pool_liquidity
                 daily_fees_earned = avg_daily_fees * share
                 apr_estimate = (daily_fees_earned * 365 / value_usd) * 100
-            elif float(pool.get("totalValueLockedUSD") or 0) > 0:
-                # Fallback to TVL share if liquidity not available
-                pool_tvl = float(pool["totalValueLockedUSD"])
+            elif pool_tvl > 0:
                 share = value_usd / pool_tvl
                 daily_fees_earned = avg_daily_fees * share
                 apr_estimate = (daily_fees_earned * 365 / value_usd) * 100
@@ -787,6 +790,14 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         pnl_usd = total_current - deposit_usd
         pnl_pct = (pnl_usd / deposit_usd) * 100
 
+    # ── Real APR: annualized actual P&L (fees + IL + price change) ────────
+    real_apr = None
+    entry_ts = int(pos["transaction"]["timestamp"]) if pos.get("transaction") else None
+    if pnl_pct is not None and entry_ts:
+        age_days = (time.time() - entry_ts) / 86400
+        if age_days >= 1:
+            real_apr = (pnl_pct / 100) / (age_days / 365) * 100
+
     return {
         "id":           pos["id"],
         "token0":       {"symbol": t0["symbol"], "address": t0["id"], "decimals": dec0},
@@ -818,6 +829,8 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         "pnl_pct":         round(pnl_pct, 2) if pnl_pct is not None else None,
         "il_pct":          il_pct,
         "apr_estimate":    round(apr_estimate, 1) if apr_estimate else None,
+        "advertised_apr":  round(advertised_apr, 1) if advertised_apr else None,
+        "real_apr":        round(real_apr, 1) if real_apr is not None else None,
 
         # Status
         "in_range":        in_range,
