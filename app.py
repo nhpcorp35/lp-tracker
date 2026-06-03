@@ -50,10 +50,27 @@ ALCHEMY_ARB    = os.environ.get("ALCHEMY_ARB_URL", "")
 
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
 
-# ── Telnyx SMS alert config ───────────────────────────────────────────────────
+# ── Email-to-SMS alert config ─────────────────────────────────────────────────
+SMTP_HOST    = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT    = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER    = os.environ.get("SMTP_USER", "")
+SMTP_PASS    = os.environ.get("SMTP_PASS", "")
+
+CARRIER_GATEWAYS = {
+    "att":        "@txt.att.net",
+    "tmobile":    "@tmomail.net",
+    "verizon":    "@vtext.com",
+    "sprint":     "@messaging.sprintpcs.com",
+    "boost":      "@sms.myboostmobile.com",
+    "cricket":    "@sms.cricketwireless.com",
+    "uscellular": "@email.uscc.net",
+    "metro":      "@mymetropcs.com",
+}
+
+# Telnyx kept as fallback
 TELNYX_API_KEY  = os.environ.get("TELNYX_API_KEY", "")
-TELNYX_FROM     = os.environ.get("TELNYX_FROM", "")   # your Telnyx number (+18153761403)
-TELNYX_TO       = os.environ.get("TELNYX_TO", "")     # your personal cell
+TELNYX_FROM     = os.environ.get("TELNYX_FROM", "")
+TELNYX_TO       = os.environ.get("TELNYX_TO", "")
 
 # Alert settings (override via env or /api/alert-settings PATCH)
 ALERT_SETTINGS_FILE    = os.environ.get("ALERT_SETTINGS_FILE", "alert_settings.json")
@@ -1116,46 +1133,84 @@ def _save_alert_settings(settings: dict):
         app.logger.warning("Could not save alert settings: %s", e)
 
 
-# ── SMS sending ───────────────────────────────────────────────────────────────
+# ── SMS sending (email-to-SMS primary, Telnyx fallback) ───────────────────────
+import smtplib
+from email.mime.text import MIMEText
 
-def _send_sms_to(to_number: str, message: str) -> bool:
-    """Send an SMS via Telnyx REST API to a specific number. Returns True on success."""
+
+def _send_via_email_gateway(phone: str, carrier: str, message: str) -> bool:
+    """Send SMS via carrier email gateway — no registration required."""
+    if not all([SMTP_USER, SMTP_PASS]):
+        app.logger.warning("SMTP not configured — email-to-SMS not sent")
+        return False
+    gateway = CARRIER_GATEWAYS.get(carrier.lower())
+    if not gateway:
+        app.logger.warning("Unknown carrier: %s", carrier)
+        return False
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) != 10:
+        app.logger.warning("Invalid phone number: %s", phone)
+        return False
+    to_email = f"{digits}{gateway}"
+    try:
+        msg = MIMEText(message)
+        msg["From"] = SMTP_USER
+        msg["To"] = to_email
+        msg["Subject"] = ""
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+        app.logger.info("Email-to-SMS sent to %s via %s", digits, carrier)
+        return True
+    except Exception as e:
+        app.logger.error("Email-to-SMS failed: %s", e)
+        return False
+
+
+def _send_via_telnyx(to_number: str, message: str) -> bool:
+    """Fallback: send SMS via Telnyx."""
     if not all([TELNYX_API_KEY, TELNYX_FROM]):
-        app.logger.warning("Telnyx not configured — SMS not sent")
         return False
     try:
         resp = requests.post(
             "https://api.telnyx.com/v2/messages",
-            headers={
-                "Authorization": f"Bearer {TELNYX_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": TELNYX_FROM,
-                "to":   to_number,
-                "text": message,
-            },
+            headers={"Authorization": f"Bearer {TELNYX_API_KEY}", "Content-Type": "application/json"},
+            json={"from": TELNYX_FROM, "to": to_number, "text": message},
             timeout=10,
         )
         if resp.status_code == 200:
-            app.logger.info("SMS sent to %s: %s", to_number, message[:60])
+            app.logger.info("Telnyx SMS sent to %s", to_number)
             return True
-        else:
-            app.logger.error("Telnyx error %s: %s", resp.status_code, resp.text[:200])
-            return False
-    except Exception as e:
-        app.logger.error("SMS send failed: %s", e)
+        app.logger.error("Telnyx error %s: %s", resp.status_code, resp.text[:200])
         return False
+    except Exception as e:
+        app.logger.error("Telnyx SMS failed: %s", e)
+        return False
+
+
+def _send_sms_to(to_number: str, message: str) -> bool:
+    """Legacy wrapper — routes through send_sms."""
+    return _send_via_telnyx(to_number, message)
 
 
 def send_sms(message: str) -> bool:
-    """Send an SMS to the configured destination (optin number or env fallback)."""
+    """Send alert — email-to-SMS primary, Telnyx fallback."""
     settings = _load_alert_settings()
-    to = settings.get("sms_to") or TELNYX_TO
-    if not to:
-        app.logger.warning("No SMS destination configured — SMS not sent")
-        return False
-    return _send_sms_to(to, message)
+    phone   = settings.get("sms_to") or TELNYX_TO
+    carrier = settings.get("carrier", "")
+
+    if phone and carrier and SMTP_USER and SMTP_PASS:
+        return _send_via_email_gateway(phone, carrier, message)
+
+    if phone and TELNYX_API_KEY:
+        app.logger.info("Falling back to Telnyx")
+        return _send_via_telnyx(phone, message)
+
+    app.logger.warning("No alert method configured")
+    return False
 
 
 # ── Alert logic ───────────────────────────────────────────────────────────────
