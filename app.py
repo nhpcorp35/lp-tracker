@@ -1334,7 +1334,7 @@ def update_alert_settings():
     """Update alert settings. Accepts partial updates."""
     body = request.get_json(silent=True) or {}
     settings = _load_alert_settings()
-    for key in ["enabled", "threshold_pct", "poll_interval_sec", "cooldown_min", "watched_positions"]:
+    for key in ["enabled", "threshold_pct", "poll_interval_sec", "cooldown_min", "watched_positions", "sms_to", "carrier"]:
         if key in body:
             settings[key] = body[key]
     _save_alert_settings(settings)
