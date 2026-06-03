@@ -741,11 +741,11 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
             if pool_liquidity > 0 and pos_liquidity > 0:
                 share = pos_liquidity / pool_liquidity
                 daily_fees_earned = avg_daily_fees * share
-                apr_estimate = (daily_fees_earned * 365 / value_usd) * 100
+                apr_estimate = (daily_fees_earned * 365 / value_usd) * 100 if in_range else 0.0
             elif pool_tvl > 0:
                 share = value_usd / pool_tvl
                 daily_fees_earned = avg_daily_fees * share
-                apr_estimate = (daily_fees_earned * 365 / value_usd) * 100
+                apr_estimate = (daily_fees_earned * 365 / value_usd) * 100 if in_range else 0.0
         except Exception:
             pass
 
