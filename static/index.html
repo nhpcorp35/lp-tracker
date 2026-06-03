@@ -627,24 +627,30 @@
     <div id="watched-list"></div>
   </div>
   <div class="alert-actions">
-    <button class="btn btn-sm" onclick="testAlert()">📱 Send Test SMS</button>
+    <button class="btn btn-sm" onclick="testAlert()">📱 Send Test Alert</button>
     <button class="btn btn-sm" id="watch-current-btn" style="display:none" onclick="watchCurrentPosition()">+ Watch Current Position</button>
   </div>
   <div id="alert-status" style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;"></div>
 
   <div class="optin-section">
-    <div class="optin-section-title">📱 SMS Opt-In</div>
+    <div class="optin-section-title">📱 SMS Setup</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">Alerts are sent free via your carrier's email gateway — no SMS service required.</div>
     <div class="optin-phone-row">
-      <input type="tel" id="optin-phone" placeholder="+1 (555) 000-0000" autocomplete="tel">
+      <input type="tel" id="optin-phone" placeholder="10-digit number e.g. 5551234567" autocomplete="tel" style="flex:2">
+      <select id="optin-carrier" style="flex:1;background:var(--bg);border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:12px;padding:7px 10px;border-radius:6px;outline:none;">
+        <option value="">Select carrier</option>
+        <option value="att">AT&T</option>
+        <option value="tmobile">T-Mobile</option>
+        <option value="verizon">Verizon</option>
+        <option value="sprint">Sprint</option>
+        <option value="boost">Boost Mobile</option>
+        <option value="cricket">Cricket</option>
+        <option value="metro">Metro by T-Mobile</option>
+        <option value="uscellular">US Cellular</option>
+      </select>
       <button class="btn btn-sm" onclick="saveOptIn()">Save</button>
     </div>
-    <div class="optin-consent">
-      <input type="checkbox" id="optin-consent-check" onchange="updateConsentState()">
-      <span class="optin-consent-text">
-        By entering my phone number and checking this box, I consent to receive automated SMS alerts from LP Tracker at lptracker.info regarding my liquidity pool positions. Message frequency varies based on position activity. Message and data rates may apply. Reply STOP to unsubscribe at any time.
-      </span>
-    </div>
-    <div class="optin-saved" id="optin-saved">✓ Phone number saved — alerts enabled</div>
+    <div class="optin-saved" id="optin-saved">✓ SMS setup saved — alerts enabled</div>
   </div>
 </div>
 
@@ -1263,6 +1269,7 @@ function loadOptIn() {
   const phone = localStorage.getItem('optin_phone') || '';
   const consented = localStorage.getItem('optin_consented') === 'true';
   document.getElementById('optin-phone').value = phone;
+  document.getElementById('optin-carrier').value = localStorage.getItem('optin_carrier') || '';
   document.getElementById('optin-consent-check').checked = consented;
   if (phone && consented) {
     document.getElementById('optin-saved').style.display = 'block';
@@ -1275,22 +1282,18 @@ function updateConsentState() {
 }
 
 function saveOptIn() {
-  const phone = document.getElementById('optin-phone').value.trim();
-  const consented = document.getElementById('optin-consent-check').checked;
-  if (!phone) { alert('Please enter a phone number.'); return; }
-  if (!consented) { alert('Please check the consent box to enable SMS alerts.'); return; }
+  const phone = document.getElementById('optin-phone').value.trim().replace(/[^0-9]/g, '');
+  const carrier = document.getElementById('optin-carrier').value;
+  if (!phone) { alert('Please enter your phone number.'); return; }
+  if (!carrier) { alert('Please select your carrier.'); return; }
   localStorage.setItem('optin_phone', phone);
-  localStorage.setItem('optin_consented', 'true');
-  fetch('/api/sms-optin', {
-    method: 'POST',
+  localStorage.setItem('optin_carrier', carrier);
+  fetch('/api/alert-settings', {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phone, consented: true })
-  }).then(r => r.json()).then(data => {
-    if (data.ok) {
-      document.getElementById('optin-saved').style.display = 'block';
-    } else {
-      alert('Failed to save phone number. Please try again.');
-    }
+    body: JSON.stringify({ sms_to: phone, carrier: carrier })
+  }).then(() => {
+    document.getElementById('optin-saved').style.display = 'block';
   }).catch(() => {
     document.getElementById('optin-saved').style.display = 'block';
   });
