@@ -1337,20 +1337,19 @@ def sms_optin():
     settings["optin_consented"] = True
     _save_alert_settings(settings)
 
-    # Send confirmation text to the opted-in number
-    ok = _send_sms_to(phone, (
-        "✅ LP Tracker alerts enabled!\n"
-        "You'll receive SMS alerts when your liquidity positions approach their boundaries.\n"
-        "Reply STOP to unsubscribe at any time."
-    ))
+    # Send confirmation via email gateway
+    ok = send_sms(
+        "✅ LP Tracker alerts enabled! "
+        "You'll receive SMS alerts when your liquidity positions approach their boundaries."
+    )
     return jsonify({"ok": ok})
 
 
 @app.route("/api/alert-test", methods=["POST"])
 def test_alert():
-    """Send a test SMS to verify Telnyx is configured correctly."""
-    ok = send_sms("✅ LP Tracker test alert — Telnyx is working correctly!")
-    return jsonify({"ok": ok, "telnyx_configured": bool(TELNYX_API_KEY and TELNYX_FROM and TELNYX_TO)})
+    """Send a test SMS via email gateway to verify alerts are configured correctly."""
+    ok = send_sms("✅ LP Tracker test alert — alerts are working correctly!")
+    return jsonify({"ok": ok, "smtp_configured": bool(SMTP_USER and SMTP_PASS)})
 
 
 @app.route("/api/alert-state", methods=["GET"])
