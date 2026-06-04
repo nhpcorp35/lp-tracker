@@ -51,6 +51,10 @@ ALCHEMY_ARB    = os.environ.get("ALCHEMY_ARB_URL", "")
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
 
 # ── Email-to-SMS alert config ─────────────────────────────────────────────────
+# ── Pushover push notifications ───────────────────────────────────────────────
+PUSHOVER_TOKEN = os.environ.get("PUSHOVER_TOKEN", "")
+PUSHOVER_USER  = os.environ.get("PUSHOVER_USER", "")
+
 SMTP_HOST    = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT    = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER    = os.environ.get("SMTP_USER", "")
@@ -1196,15 +1200,41 @@ def _send_sms_to(to_number: str, message: str) -> bool:
     return _send_via_telnyx(to_number, message)
 
 
+def _send_via_pushover(message: str) -> bool:
+    """Send push notification via Pushover API."""
+    if not all([PUSHOVER_TOKEN, PUSHOVER_USER]):
+        app.logger.warning("Pushover not configured")
+        return False
+    try:
+        resp = requests.post(
+            "https://api.pushover.net/1/messages.json",
+            data={
+                "token":   PUSHOVER_TOKEN,
+                "user":    PUSHOVER_USER,
+                "message": message,
+                "title":   "LP Tracker Alert",
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            app.logger.info("Pushover notification sent")
+            return True
+        app.logger.error("Pushover error %s: %s", resp.status_code, resp.text[:200])
+        return False
+    except Exception as e:
+        app.logger.error("Pushover failed: %s", e)
+        return False
+
+
 def send_sms(message: str) -> bool:
-    """Send alert — email-to-SMS primary, Telnyx fallback."""
+    """Send alert — Pushover primary, Telnyx fallback."""
+    # Primary: Pushover push notification
+    if PUSHOVER_TOKEN and PUSHOVER_USER:
+        return _send_via_pushover(message)
+
+    # Fallback: Telnyx SMS
     settings = _load_alert_settings()
-    phone   = settings.get("sms_to") or TELNYX_TO
-    carrier = settings.get("carrier", "")
-
-    if phone and carrier and SMTP_USER and SMTP_PASS:
-        return _send_via_email_gateway(phone, carrier, message)
-
+    phone = settings.get("sms_to") or TELNYX_TO
     if phone and TELNYX_API_KEY:
         app.logger.info("Falling back to Telnyx")
         return _send_via_telnyx(phone, message)
