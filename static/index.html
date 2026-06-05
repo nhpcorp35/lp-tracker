@@ -735,6 +735,15 @@
     </div>
   </div>
 
+  <!-- Out-of-range event log -->
+  <div id="range-log-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">⚡ OUT-OF-RANGE LOG</div>
+      <span id="range-log-open-badge" style="display:none;font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:4px;background:var(--red-dim);color:var(--red);border:1px solid rgba(244,84,92,0.25);">● CURRENTLY OUT</span>
+    </div>
+    <div id="range-log-body" style="font-family:var(--mono);font-size:12px;"></div>
+  </div>
+
   <div id="positions-grid">
     <div class="empty-state" id="empty-state">
       <div class="icon">◈</div>
@@ -1238,6 +1247,7 @@ async function loadPositions(forceRefresh = false) {
     lastPositions = positions;
     renderGrid(positions);
     loadHistory();
+    loadRangeEvents();
 
     const cached = data.cached ? ' (cached)' : '';
     const inRange = positions.filter(p => p.in_range).length;
@@ -1529,6 +1539,7 @@ loadSaved().then(() => {
       }
     } catch(e) {}
   }
+  loadRangeEvents();
 });
 
 // Check URL params for wallet
@@ -1537,6 +1548,76 @@ const walletParam = params.get('wallet');
 if (walletParam) {
   document.getElementById('wallet-input').value = walletParam;
   loadPositions();
+}
+
+// ── Out-of-range event log ────────────────────────────────────────────────────
+
+async function loadRangeEvents() {
+  try {
+    const res = await fetch('/api/range-events?limit=20', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    renderRangeLog(data);
+  } catch(e) { console.warn('Could not load range events:', e); }
+}
+
+function renderRangeLog(data) {
+  const section = document.getElementById('range-log-section');
+  const body    = document.getElementById('range-log-body');
+  const badge   = document.getElementById('range-log-open-badge');
+  const events  = data.events || [];
+  const status  = data.last_status || {};
+
+  // Show "currently out" badge if any watched position is out of range
+  const anyOut = Object.values(status).some(s => !s.in_range);
+  badge.style.display = anyOut ? 'inline' : 'none';
+
+  if (events.length === 0) {
+    // Show section only if we have status data (i.e. snapshot has run at least once)
+    if (Object.keys(status).length === 0) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    body.innerHTML = '<div style="color:var(--muted);font-size:11px;">No out-of-range events recorded yet. Check back after the next hourly snapshot.</div>';
+    return;
+  }
+
+  section.style.display = 'block';
+
+  const rows = events.map(evt => {
+    const outDate  = new Date(evt.ts_out * 1000);
+    const outStr   = outDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                   + ' ' + outDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const sideIcon = evt.side === 'below' ? '▼' : '▲';
+    const sideCol  = evt.side === 'below' ? 'var(--red)' : 'var(--amber)';
+
+    let durStr = '—';
+    let inStr  = '<span style="color:var(--red)">still out</span>';
+    if (evt.duration_sec != null) {
+      const h = Math.floor(evt.duration_sec / 3600);
+      const m = Math.floor((evt.duration_sec % 3600) / 60);
+      durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+      const inDate = new Date(evt.ts_in * 1000);
+      inStr = inDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            + ' ' + inDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    return `
+      <div style="display:grid;grid-template-columns:1fr 90px 90px 80px 80px 80px;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);align-items:center;">
+        <span style="color:var(--muted)">#${evt.id} <span style="font-size:10px;opacity:0.6">${evt.chain}</span></span>
+        <span style="color:${sideCol}">${sideIcon} ${evt.side}</span>
+        <span style="color:var(--muted)">${outStr}</span>
+        <span style="color:var(--muted)">${fmtPrice(evt.price_out)}</span>
+        <span>${inStr}</span>
+        <span style="color:var(--text)">${durStr}</span>
+      </div>`;
+  });
+
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 90px 90px 80px 80px 80px;gap:8px;padding:0 0 6px;border-bottom:1px solid var(--border2);margin-bottom:4px;">
+      ${['POSITION','SIDE','EXITED','PRICE OUT','RE-ENTERED','DURATION'].map(h =>
+        `<span style="font-size:9px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase">${h}</span>`
+      ).join('')}
+    </div>
+    ${rows.join('')}`;
 }
 
 // ── Portfolio History Charts ──────────────────────────────────────────────────

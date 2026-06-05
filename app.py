@@ -105,6 +105,11 @@ SAVED_POSITIONS_FILE = os.environ.get(
     "SAVED_POSITIONS_FILE",
     os.path.join(_data_dir, "saved_positions.json")
 )
+RANGE_EVENTS_FILE = os.environ.get(
+    "RANGE_EVENTS_FILE",
+    os.path.join(_data_dir, "range_events.json")
+)
+MAX_RANGE_EVENTS = 1000   # keep last 1000 transition events
 
 
 def _load_saved_positions() -> list:
@@ -123,6 +128,25 @@ def _save_saved_positions(positions: list):
             json.dump(positions, f, indent=2)
     except Exception as e:
         app.logger.warning("Could not save saved positions: %s", e)
+
+
+def _load_range_events() -> dict:
+    try:
+        if os.path.exists(RANGE_EVENTS_FILE):
+            with open(RANGE_EVENTS_FILE) as f:
+                return json.load(f)
+    except Exception as e:
+        app.logger.warning("Could not load range events: %s", e)
+    return {"last_status": {}, "events": []}
+
+
+def _save_range_events(data: dict):
+    try:
+        data["events"] = data["events"][-MAX_RANGE_EVENTS:]
+        with open(RANGE_EVENTS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        app.logger.warning("Could not save range events: %s", e)
 
 
 def _load_lp_entries() -> dict:
@@ -1348,6 +1372,60 @@ def _save_snapshots(snapshots: list):
         app.logger.error("Snapshot save failed: %s", e)
 
 
+def _check_range_transition(
+    pos_id: str,
+    chain: str,
+    in_range: bool,
+    current_price: float,
+    price_lower: float,
+    price_upper: float,
+):
+    """
+    Compare current in_range status to the last known status for this position.
+    On a transition, append an event to range_events.json.
+    - out-of-range event: {ts_out, side, price_out}  ts_in=None until re-entry
+    - re-entry closes the open event with ts_in, duration_sec, price_in
+    Called once per snapshot cycle (~hourly). Duration resolution is ~1 hour.
+    """
+    key  = f"{chain}:{pos_id}"
+    ts   = int(time.time())
+    data = _load_range_events()
+    last = data["last_status"].get(key)
+
+    if last is not None and last["in_range"] != in_range:
+        if not in_range:
+            # Just left the range — open a new event
+            side = "below" if current_price < price_lower else "above"
+            data["events"].append({
+                "id":          pos_id,
+                "chain":       chain,
+                "ts_out":      ts,
+                "ts_in":       None,
+                "duration_sec": None,
+                "price_out":   round(current_price, 4),
+                "price_in":    None,
+                "side":        side,
+            })
+            app.logger.info("Range exit for %s: price=%.4f side=%s", key, current_price, side)
+        else:
+            # Just re-entered — close the most recent open event for this position
+            for evt in reversed(data["events"]):
+                if evt["id"] == pos_id and evt["chain"] == chain and evt["ts_in"] is None:
+                    evt["ts_in"]       = ts
+                    evt["duration_sec"] = ts - evt["ts_out"]
+                    evt["price_in"]    = round(current_price, 4)
+                    break
+            app.logger.info("Range re-entry for %s: price=%.4f", key, current_price)
+
+    # Always update last known status
+    data["last_status"][key] = {
+        "in_range": in_range,
+        "ts":       ts,
+        "price":    round(current_price, 4),
+    }
+    _save_range_events(data)
+
+
 def _take_snapshot():
     """Fetch all watched positions and record a portfolio snapshot."""
     try:
@@ -1393,6 +1471,14 @@ def _take_snapshot():
                     "apr":      round(apr, 2) if apr is not None else None,
                     "in_range": in_range,
                 })
+
+                # Track range transitions
+                _check_range_transition(
+                    pos_id, chain, in_range,
+                    p.get("current_price") or 0,
+                    p.get("price_lower") or 0,
+                    p.get("price_upper") or 0,
+                )
             except Exception as e:
                 app.logger.warning("Snapshot error for %s: %s", pos_id, e)
 
@@ -1483,6 +1569,20 @@ def force_snapshot():
     _take_snapshot()
     snapshots = _load_snapshots()
     return jsonify({"ok": True, "total_snapshots": len(snapshots)})
+
+
+# ── Range events API ─────────────────────────────────────────────────────────
+
+@app.route("/api/range-events", methods=["GET"])
+def get_range_events():
+    """Return out-of-range transition log and current last_status per position."""
+    data   = _load_range_events()
+    limit  = int(request.args.get("limit", 50))
+    events = list(reversed(data["events"]))[:limit]   # newest first
+    return jsonify({
+        "events":      events,
+        "last_status": data["last_status"],
+    })
 
 
 # ── Alert API endpoints ───────────────────────────────────────────────────────
