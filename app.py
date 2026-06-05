@@ -90,7 +90,14 @@ _alert_state = {}   # { "chain:position_id": last_alert_timestamp }
 _alert_thread = None
 
 # Manual entry price storage — persists user-entered cost basis per position ID
-LP_ENTRIES_FILE = os.environ.get("LP_ENTRIES_FILE", "lp_entries.json")
+LP_ENTRIES_FILE   = os.environ.get("LP_ENTRIES_FILE", "lp_entries.json")
+SNAPSHOT_FILE     = os.environ.get("SNAPSHOT_FILE", os.path.join(
+                        os.path.dirname(os.path.abspath(
+                            os.environ.get("LP_ENTRIES_FILE", "lp_entries.json")
+                        )), "portfolio_snapshots.json"
+                    ))
+SNAPSHOT_INTERVAL = 3600   # take a snapshot every hour
+MAX_SNAPSHOTS     = 2160   # keep 90 days of hourly snapshots
 
 # Saved positions — stored in same directory as lp_entries.json (Railway volume)
 _data_dir = os.path.dirname(os.path.abspath(LP_ENTRIES_FILE))
@@ -1317,9 +1324,105 @@ def _check_and_alert(position: dict, chain: str, settings: dict):
             )
 
 
+# ── Portfolio snapshot engine ─────────────────────────────────────────────────
+
+def _load_snapshots() -> list:
+    """Load portfolio snapshots from disk."""
+    try:
+        if os.path.exists(SNAPSHOT_FILE):
+            with open(SNAPSHOT_FILE) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return []
+
+
+def _save_snapshots(snapshots: list):
+    """Save snapshots to disk, keeping only the most recent MAX_SNAPSHOTS."""
+    try:
+        snapshots = snapshots[-MAX_SNAPSHOTS:]
+        with open(SNAPSHOT_FILE, "w") as f:
+            json.dump(snapshots, f)
+    except Exception as e:
+        app.logger.error("Snapshot save failed: %s", e)
+
+
+def _take_snapshot():
+    """Fetch all watched positions and record a portfolio snapshot."""
+    try:
+        settings = _load_alert_settings()
+        watched  = settings.get("watched_positions", [])
+        if not watched:
+            return
+
+        total_value_usd    = 0.0
+        total_fees_usd     = 0.0
+        total_pnl_usd      = 0.0
+        position_snapshots = []
+        apr_values         = []
+
+        for wp in watched:
+            pos_id = str(wp.get("position_id", ""))
+            chain  = wp.get("chain", "base-pancake")
+            if not pos_id:
+                continue
+            try:
+                raw = query_by_id(pos_id, chain)
+                if not raw:
+                    continue
+                p = enrich_position(raw, chain)
+                value     = p.get("value_usd") or 0
+                fees      = p.get("uncollected_fees_usd") or 0
+                pnl       = p.get("pnl_usd") or 0
+                apr       = p.get("apr_estimate")
+                in_range  = p.get("in_range", False)
+
+                total_value_usd += value
+                total_fees_usd  += fees
+                total_pnl_usd   += pnl
+                if apr is not None:
+                    apr_values.append(apr)
+
+                position_snapshots.append({
+                    "id":       pos_id,
+                    "chain":    chain,
+                    "value":    round(value, 2),
+                    "fees":     round(fees, 2),
+                    "pnl":      round(pnl, 2),
+                    "apr":      round(apr, 2) if apr is not None else None,
+                    "in_range": in_range,
+                })
+            except Exception as e:
+                app.logger.warning("Snapshot error for %s: %s", pos_id, e)
+
+        if not position_snapshots:
+            return
+
+        avg_apr = round(sum(apr_values) / len(apr_values), 2) if apr_values else None
+
+        snapshot = {
+            "ts":          int(time.time()),
+            "total_value": round(total_value_usd, 2),
+            "total_fees":  round(total_fees_usd, 2),
+            "total_pnl":   round(total_pnl_usd, 2),
+            "avg_apr":     avg_apr,
+            "positions":   position_snapshots,
+        }
+
+        snapshots = _load_snapshots()
+        snapshots.append(snapshot)
+        _save_snapshots(snapshots)
+        app.logger.info("Portfolio snapshot saved: $%.2f, APR %.1f%%",
+                        total_value_usd, avg_apr or 0)
+
+    except Exception as e:
+        app.logger.error("Snapshot failed: %s", e)
+
+
 def _alert_poll_loop():
-    """Background thread — polls watched positions and fires SMS alerts."""
+    """Background thread — polls watched positions, fires alerts, and takes snapshots."""
     app.logger.info("Alert polling thread started")
+    last_snapshot_ts = 0
     while True:
         try:
             settings = _load_alert_settings()
@@ -1328,6 +1431,12 @@ def _alert_poll_loop():
                 continue
 
             poll_interval = int(settings.get("poll_interval_sec", 300))
+
+            # Take hourly portfolio snapshot
+            now = time.time()
+            if now - last_snapshot_ts >= SNAPSHOT_INTERVAL:
+                _take_snapshot()
+                last_snapshot_ts = now
 
             # Load watched positions from alert_settings
             watched = settings.get("watched_positions", [])
@@ -1350,6 +1459,29 @@ def _alert_poll_loop():
             app.logger.error("Alert loop error: %s", e)
 
         time.sleep(poll_interval)
+
+
+# ── Snapshot API ─────────────────────────────────────────────────────────────
+
+@app.route("/api/snapshots")
+def get_snapshots():
+    """Return portfolio snapshots filtered by period."""
+    period = request.args.get("period", "30d")
+    snapshots = _load_snapshots()
+    now = time.time()
+    cutoffs = {"7d": 7, "30d": 30, "90d": 90, "all": 99999}
+    days = cutoffs.get(period, 30)
+    cutoff = now - days * 86400
+    filtered = [s for s in snapshots if s["ts"] >= cutoff]
+    return jsonify({"snapshots": filtered, "period": period})
+
+
+@app.route("/api/snapshots/force", methods=["POST"])
+def force_snapshot():
+    """Manually trigger a snapshot (for testing)."""
+    _take_snapshot()
+    snapshots = _load_snapshots()
+    return jsonify({"ok": True, "total_snapshots": len(snapshots)})
 
 
 # ── Alert API endpoints ───────────────────────────────────────────────────────
