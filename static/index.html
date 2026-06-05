@@ -723,15 +723,16 @@
         <button onclick="setChartPeriod('all')" id="period-all" class="period-btn">ALL</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
       <canvas id="value-chart" height="120"></canvas>
       <canvas id="apr-chart" height="120"></canvas>
+      <canvas id="inrange-chart" height="120"></canvas>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:11px;text-align:center;">
       <div><div style="color:var(--muted);margin-bottom:2px;">PEAK VALUE</div><div id="hist-peak" style="color:var(--text);font-weight:600;">—</div></div>
       <div><div style="color:var(--muted);margin-bottom:2px;">LOW VALUE</div><div id="hist-low" style="color:var(--text);font-weight:600;">—</div></div>
       <div><div style="color:var(--muted);margin-bottom:2px;">AVG APR</div><div id="hist-avg-apr" style="color:var(--green);font-weight:600;">—</div></div>
-      <div><div style="color:var(--muted);margin-bottom:2px;">TIME IN RANGE</div><div id="hist-efficiency" style="color:var(--text);font-weight:600;">—</div></div>
+      <div><div style="color:var(--muted);margin-bottom:2px;">TIME IN RANGE</div><div id="hist-efficiency" style="color:var(--green);font-weight:600;">—</div></div>
     </div>
   </div>
 
@@ -1063,6 +1064,19 @@ function buildCard(pos) {
 
       <div class="divider"></div>
 
+      <!-- Per-position range timeline (populated async after card render) -->
+      <div id="range-timeline-${pos.id}" style="margin:-4px 0 2px;">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;display:flex;justify-content:space-between;">
+          <span>Range History</span>
+          <span id="range-tir-${pos.id}" style="color:var(--muted)">loading…</span>
+        </div>
+        <div id="range-bar-timeline-${pos.id}" style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;position:relative;">
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted)">—</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
       <div class="stats" style="grid-template-columns: repeat(4, 1fr)">
         <div class="stat">
           <div class="stat-label">APR</div>
@@ -1248,6 +1262,10 @@ async function loadPositions(forceRefresh = false) {
     renderGrid(positions);
     loadHistory();
     loadRangeEvents();
+    // Load per-position range stats & timelines asynchronously
+    for (const p of positions) {
+      loadRangeStatsForPosition(String(p.id), p.chain || currentChain);
+    }
 
     const cached = data.cached ? ' (cached)' : '';
     const inRange = positions.filter(p => p.in_range).length;
@@ -1550,6 +1568,86 @@ if (walletParam) {
   loadPositions();
 }
 
+// ── Per-position range stats & timeline ──────────────────────────────────────
+
+const _rangeStatsCache = {};
+
+async function loadRangeStatsForPosition(posId, chain) {
+  const key = `${chain}:${posId}`;
+  try {
+    const res = await fetch(`/api/range-stats/${posId}?chain=${chain}&period=all`, { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    _rangeStatsCache[key] = data;
+    renderPositionTimeline(posId, data);
+    updateCardTir(posId, data);
+  } catch(e) { /* silent */ }
+}
+
+function updateCardTir(posId, data) {
+  const el = document.getElementById(`range-tir-${posId}`);
+  if (!el) return;
+  const pct = data.pct_in_range;
+  const all = pct?.all;
+  const d7  = pct?.['7d'];
+  if (all == null) { el.textContent = 'no history yet'; return; }
+  let txt = `${all}% all-time`;
+  if (d7 != null) txt += ` · ${d7}% 7d`;
+  el.textContent = txt;
+  el.style.color = all >= 80 ? 'var(--green)' : all >= 50 ? 'var(--amber)' : 'var(--red)';
+}
+
+function renderPositionTimeline(posId, data) {
+  const bar = document.getElementById(`range-bar-timeline-${posId}`);
+  if (!bar) return;
+
+  const timeline  = data.timeline || [];
+  const lastSt    = data.last_status;
+  const now       = Date.now() / 1000;
+
+  // Find earliest timestamp across snapshots and events to set scale
+  const allTs = timeline.map(e => e.ts_out).filter(Boolean);
+  if (!allTs.length && !lastSt) { bar.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted)">no history yet</div>'; return; }
+
+  // Compute window: from first snapshot for this pos or first event, whichever earlier
+  const windowStart = Math.min(...allTs, now - 30 * 86400); // at most 30d back
+  const windowEnd   = now;
+  const span        = windowEnd - windowStart;
+  if (span <= 0) return;
+
+  // Build segments: default in-range (green), punch out-of-range gaps (red)
+  // segments = array of {start, end, in_range}
+  const segments = [];
+  let cursor = windowStart;
+
+  // Sort events chronologically
+  const evts = [...timeline].sort((a, b) => a.ts_out - b.ts_out);
+
+  for (const evt of evts) {
+    const tsOut = Math.max(evt.ts_out, windowStart);
+    const tsIn  = evt.ts_in || now; // still out → extends to now
+
+    if (tsOut > cursor) {
+      segments.push({ start: cursor, end: tsOut, in_range: true });
+    }
+    segments.push({ start: tsOut, end: Math.min(tsIn, windowEnd), in_range: false });
+    cursor = Math.min(tsIn, windowEnd);
+  }
+  // Fill tail
+  if (cursor < windowEnd) {
+    const inR = lastSt ? lastSt.in_range : true;
+    segments.push({ start: cursor, end: windowEnd, in_range: inR });
+  }
+
+  // Render
+  bar.innerHTML = segments.map(seg => {
+    const left  = ((seg.start - windowStart) / span * 100).toFixed(2);
+    const width = ((seg.end   - seg.start)   / span * 100).toFixed(2);
+    const color = seg.in_range ? 'var(--green)' : 'var(--red)';
+    return `<div style="position:absolute;top:0;left:${left}%;width:${width}%;height:100%;background:${color};opacity:0.75"></div>`;
+  }).join('');
+}
+
 // ── Out-of-range event log ────────────────────────────────────────────────────
 
 async function loadRangeEvents() {
@@ -1699,6 +1797,32 @@ async function loadHistory() {
       },
       options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, title: { display: true, text: 'Fee APR (%)', color: '#9ca3af', font: { size: 11 } } },
         scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, ticks: { ...chartDefaults.scales.y.ticks, callback: v => v + '%' } } }
+      }
+    });
+
+    // In-range % chart — rolling % of positions in range at each snapshot
+    const inRangePcts = snapshots.map(s => {
+      const pos = s.positions || [];
+      if (!pos.length) return null;
+      return Math.round(pos.filter(p => p.in_range).length / pos.length * 100);
+    });
+    const avgInRange = inRangePcts.filter(v => v != null);
+    const avgPct = avgInRange.length ? Math.round(avgInRange.reduce((a,b)=>a+b,0)/avgInRange.length) : null;
+    document.getElementById('hist-efficiency').textContent = avgPct != null ? avgPct + '%' : '—';
+    document.getElementById('hist-efficiency').style.color = avgPct >= 80 ? 'var(--green)' : avgPct >= 50 ? 'var(--amber)' : 'var(--red)';
+
+    if (window.inRangeChart) window.inRangeChart.destroy();
+    window.inRangeChart = new Chart(document.getElementById('inrange-chart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'In Range %', data: inRangePcts, borderColor: '#2dcd7a', backgroundColor: 'rgba(45,205,122,0.1)', borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3, spanGaps: true },
+        ]
+      },
+      options: { ...chartDefaults,
+        plugins: { ...chartDefaults.plugins, title: { display: true, text: 'Time In Range (%)', color: '#9ca3af', font: { size: 11 } } },
+        scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 100, ticks: { ...chartDefaults.scales.y.ticks, callback: v => v + '%' } } }
       }
     });
 

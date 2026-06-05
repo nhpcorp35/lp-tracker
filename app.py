@@ -97,7 +97,7 @@ SNAPSHOT_FILE     = os.environ.get("SNAPSHOT_FILE", os.path.join(
                         )), "portfolio_snapshots.json"
                     ))
 SNAPSHOT_INTERVAL = 3600   # take a snapshot every hour
-MAX_SNAPSHOTS     = 2160   # keep 90 days of hourly snapshots
+MAX_SNAPSHOTS     = None   # keep all snapshots forever; delete manually if needed
 
 # Saved positions — stored in same directory as lp_entries.json (Railway volume)
 _data_dir = os.path.dirname(os.path.abspath(LP_ENTRIES_FILE))
@@ -109,7 +109,7 @@ RANGE_EVENTS_FILE = os.environ.get(
     "RANGE_EVENTS_FILE",
     os.path.join(_data_dir, "range_events.json")
 )
-MAX_RANGE_EVENTS = 1000   # keep last 1000 transition events
+MAX_RANGE_EVENTS = None   # keep all range events forever
 
 
 def _load_saved_positions() -> list:
@@ -141,8 +141,8 @@ def _load_range_events() -> dict:
 
 
 def _save_range_events(data: dict):
+    """Save range events to disk. All events kept forever — delete file manually to reset."""
     try:
-        data["events"] = data["events"][-MAX_RANGE_EVENTS:]
         with open(RANGE_EVENTS_FILE, "w") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
@@ -1363,9 +1363,8 @@ def _load_snapshots() -> list:
 
 
 def _save_snapshots(snapshots: list):
-    """Save snapshots to disk, keeping only the most recent MAX_SNAPSHOTS."""
+    """Save snapshots to disk. All snapshots kept forever — delete file manually to reset."""
     try:
-        snapshots = snapshots[-MAX_SNAPSHOTS:]
         with open(SNAPSHOT_FILE, "w") as f:
             json.dump(snapshots, f)
     except Exception as e:
@@ -1552,14 +1551,28 @@ def _alert_poll_loop():
 
 @app.route("/api/snapshots")
 def get_snapshots():
-    """Return portfolio snapshots filtered by period."""
-    period = request.args.get("period", "30d")
-    snapshots = _load_snapshots()
+    """Return portfolio snapshots filtered by period. Optionally filter to one position."""
+    period      = request.args.get("period", "30d")
+    position_id = request.args.get("position_id", None)
+    snapshots   = _load_snapshots()
     now = time.time()
     cutoffs = {"7d": 7, "30d": 30, "90d": 90, "all": 99999}
     days = cutoffs.get(period, 30)
     cutoff = now - days * 86400
     filtered = [s for s in snapshots if s["ts"] >= cutoff]
+
+    # If position_id requested, inject per-position in_range into each snapshot
+    if position_id:
+        out = []
+        for s in filtered:
+            pos_snap = next(
+                (p for p in s.get("positions", []) if str(p.get("id")) == str(position_id)),
+                None
+            )
+            if pos_snap:
+                out.append({**s, "position_in_range": pos_snap.get("in_range")})
+        filtered = out
+
     return jsonify({"snapshots": filtered, "period": period})
 
 
@@ -1582,6 +1595,64 @@ def get_range_events():
     return jsonify({
         "events":      events,
         "last_status": data["last_status"],
+    })
+
+
+@app.route("/api/range-stats/<position_id>", methods=["GET"])
+def get_range_stats(position_id):
+    """
+    Compute time-in-range % for a position from snapshot history.
+    Also returns per-episode durations from range_events for the timeline.
+    Query params:
+      chain  — filter snapshots to this chain (optional)
+      period — 7d | 30d | all  (default: all)
+    """
+    chain  = request.args.get("chain", None)
+    period = request.args.get("period", "all")
+
+    snapshots = _load_snapshots()
+    now = time.time()
+    cutoffs = {"7d": 7 * 86400, "30d": 30 * 86400, "all": 10 * 365 * 86400}
+    cutoff  = now - cutoffs.get(period, cutoffs["all"])
+
+    # Filter snapshots to period and extract per-position in_range
+    def _in_range_for(snap):
+        for p in snap.get("positions", []):
+            if str(p.get("id")) == str(position_id):
+                if chain and p.get("chain") != chain:
+                    continue
+                return p.get("in_range")
+        return None
+
+    stats = {}
+    for window, secs in [("7d", 7 * 86400), ("30d", 30 * 86400), ("all", 10 * 365 * 86400)]:
+        wc = now - secs
+        snaps = [s for s in snapshots if s["ts"] >= wc]
+        hits  = [_in_range_for(s) for s in snaps]
+        hits  = [h for h in hits if h is not None]
+        if hits:
+            stats[window] = round(sum(hits) / len(hits) * 100, 1)
+        else:
+            stats[window] = None
+
+    # Timeline: all range events for this position (chronological)
+    events_data = _load_range_events()
+    timeline = [
+        e for e in events_data.get("events", [])
+        if str(e.get("id")) == str(position_id)
+        and (not chain or e.get("chain") == chain)
+    ]
+
+    # Current open episode if still out of range
+    key = f"{(chain or 'base')}:{position_id}"
+    last_status = events_data.get("last_status", {}).get(key)
+
+    return jsonify({
+        "position_id":  position_id,
+        "pct_in_range": stats,
+        "timeline":     timeline,
+        "last_status":  last_status,
+        "snapshot_count": len([s for s in snapshots if _in_range_for(s) is not None]),
     })
 
 
