@@ -110,6 +110,10 @@ RANGE_EVENTS_FILE = os.environ.get(
     os.path.join(_data_dir, "range_events.json")
 )
 MAX_RANGE_EVENTS = None   # keep all range events forever
+REBALANCE_FILE = os.environ.get(
+    "REBALANCE_FILE",
+    os.path.join(_data_dir, "rebalance_tracker.json")
+)
 
 
 def _load_saved_positions() -> list:
@@ -1425,6 +1429,116 @@ def _check_range_transition(
     _save_range_events(data)
 
 
+def _load_rebalances() -> dict:
+    try:
+        if os.path.exists(REBALANCE_FILE):
+            with open(REBALANCE_FILE) as f:
+                return json.load(f)
+    except Exception as e:
+        app.logger.warning("Could not load rebalance tracker: %s", e)
+    return {"pools": {}}
+
+
+def _save_rebalances(data: dict):
+    try:
+        with open(REBALANCE_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        app.logger.warning("Could not save rebalance tracker: %s", e)
+
+
+def _check_rebalance(pos_id: str, chain: str, p: dict):
+    """
+    Auto-detect rebalances by comparing the current NFT ID to the last known
+    NFT for the same pool (chain:pool_address). When a new NFT appears on the
+    same pool, the previous cycle is closed and a new one is opened.
+    Called once per snapshot cycle from _take_snapshot().
+    """
+    pool_address = p.get("pool_address", "")
+    if not pool_address:
+        return
+
+    pool_key = f"{chain}:{pool_address}"
+    ts       = int(time.time())
+    data     = _load_rebalances()
+
+    if pool_key not in data["pools"]:
+        # First time we see this pool — initialize
+        data["pools"][pool_key] = {
+            "chain":         chain,
+            "pool_address":  pool_address,
+            "token0_symbol": p.get("token0", {}).get("symbol", "?"),
+            "token1_symbol": p.get("token1", {}).get("symbol", "?"),
+            "fee_tier":      p.get("fee_tier", 0),
+            "cycles":        [],
+        }
+
+    pool_data = data["pools"][pool_key]
+    cycles    = pool_data["cycles"]
+    last      = cycles[-1] if cycles else None
+
+    if last is None:
+        # First position seen on this pool
+        cycles.append(_new_cycle(pos_id, ts, p))
+        app.logger.info("Rebalance tracker: opened first cycle %s on %s", pos_id, pool_key)
+
+    elif last["nft_id"] == pos_id:
+        # Same NFT — update running values
+        last["current_value_usd"] = round(p.get("value_usd") or 0, 2)
+        last["current_price"]     = round(p.get("current_price") or 0, 4)
+        last["fees_usd_uncollected"] = round(p.get("fees_usd") or 0, 4)
+        # Accumulate collected fees from subgraph (best proxy we have)
+        collected = (
+            float(p.get("collected_fees_token0") or 0) * (p.get("current_price") or 0)
+            + float(p.get("collected_fees_token1") or 0)
+        )
+        last["fees_collected_usd"] = round(collected, 4)
+
+    else:
+        # Different NFT on the same pool → rebalance detected
+        app.logger.info(
+            "Rebalance detected on %s: %s → %s",
+            pool_key, last["nft_id"], pos_id
+        )
+        # Close the old cycle
+        last["close_ts"]    = ts
+        last["close_price"] = round(p.get("current_price") or 0, 4)
+        close_val           = round(p.get("value_usd") or 0, 2)   # price at close ≈ new open
+        last["value_at_close"] = close_val
+        open_val = last.get("value_at_open") or close_val
+        fees_col = last.get("fees_collected_usd") or 0
+        last["pnl_usd"] = round((close_val - open_val) + fees_col, 2)
+        last["duration_sec"] = ts - last["open_ts"]
+
+        # Open a new cycle for the new NFT
+        cycles.append(_new_cycle(pos_id, ts, p))
+        app.logger.info("Rebalance tracker: opened new cycle %s on %s", pos_id, pool_key)
+
+    _save_rebalances(data)
+
+
+def _new_cycle(pos_id: str, ts: int, p: dict) -> dict:
+    return {
+        "nft_id":              pos_id,
+        "open_ts":             ts,
+        "close_ts":            None,
+        "open_price":          round(p.get("current_price") or 0, 4),
+        "close_price":         None,
+        "tick_lower":          p.get("tick_lower"),
+        "tick_upper":          p.get("tick_upper"),
+        "price_lower":         round(p.get("price_lower") or 0, 4),
+        "price_upper":         round(p.get("price_upper") or 0, 4),
+        "value_at_open":       round(p.get("deposit_usd") or p.get("value_usd") or 0, 2),
+        "value_at_close":      None,
+        "current_value_usd":   round(p.get("value_usd") or 0, 2),
+        "current_price":       round(p.get("current_price") or 0, 4),
+        "fees_collected_usd":  0.0,
+        "fees_usd_uncollected": round(p.get("fees_usd") or 0, 4),
+        "pnl_usd":             None,
+        "duration_sec":        None,
+    }
+
+
 def _take_snapshot():
     """Fetch all watched positions and record a portfolio snapshot."""
     try:
@@ -1478,6 +1592,8 @@ def _take_snapshot():
                     p.get("price_lower") or 0,
                     p.get("price_upper") or 0,
                 )
+                # Track rebalances (new NFT on same pool)
+                _check_rebalance(pos_id, chain, p)
             except Exception as e:
                 app.logger.warning("Snapshot error for %s: %s", pos_id, e)
 
@@ -1654,6 +1770,37 @@ def get_range_stats(position_id):
         "last_status":  last_status,
         "snapshot_count": len([s for s in snapshots if _in_range_for(s) is not None]),
     })
+
+
+@app.route("/api/rebalances", methods=["GET"])
+def get_rebalances():
+    """Return rebalance cycle history grouped by pool."""
+    data  = _load_rebalances()
+    pools = []
+    for pool_key, pd in data["pools"].items():
+        cycles = pd.get("cycles", [])
+        # Compute summary stats
+        closed = [c for c in cycles if c.get("close_ts")]
+        total_fees = sum(c.get("fees_collected_usd") or 0 for c in cycles)
+        total_pnl  = sum(c.get("pnl_usd") or 0 for c in closed)
+        avg_dur    = (
+            round(sum(c["duration_sec"] for c in closed) / len(closed))
+            if closed else None
+        )
+        pools.append({
+            "pool_key":      pool_key,
+            "chain":         pd["chain"],
+            "pool_address":  pd["pool_address"],
+            "token0_symbol": pd["token0_symbol"],
+            "token1_symbol": pd["token1_symbol"],
+            "fee_tier":      pd["fee_tier"],
+            "rebalance_count": len(closed),
+            "total_fees_usd":  round(total_fees, 2),
+            "total_pnl_usd":   round(total_pnl, 2),
+            "avg_cycle_duration_sec": avg_dur,
+            "cycles": list(reversed(cycles)),  # newest first
+        })
+    return jsonify({"pools": pools})
 
 
 # ── Alert API endpoints ───────────────────────────────────────────────────────

@@ -745,6 +745,15 @@
     <div id="range-log-body" style="font-family:var(--mono);font-size:12px;"></div>
   </div>
 
+  <!-- Rebalance tracker -->
+  <div id="rebalance-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">🔄 REBALANCE TRACKER</div>
+      <span id="rebalance-count-badge" style="font-family:var(--mono);font-size:11px;color:var(--muted)"></span>
+    </div>
+    <div id="rebalance-body" style="font-family:var(--mono);font-size:12px;"></div>
+  </div>
+
   <div id="positions-grid">
     <div class="empty-state" id="empty-state">
       <div class="icon">◈</div>
@@ -1277,6 +1286,7 @@ async function loadPositions(forceRefresh = false) {
     renderGrid(positions);
     loadHistory();
     loadRangeEvents();
+    loadRebalances();
     // Load per-position range stats & timelines asynchronously
     for (const p of positions) {
       loadRangeStatsForPosition(String(p.id), p.chain || currentChain);
@@ -1573,6 +1583,7 @@ loadSaved().then(() => {
     } catch(e) {}
   }
   loadRangeEvents();
+  loadRebalances();
 });
 
 // Check URL params for wallet
@@ -1581,6 +1592,94 @@ const walletParam = params.get('wallet');
 if (walletParam) {
   document.getElementById('wallet-input').value = walletParam;
   loadPositions();
+}
+
+// ── Rebalance tracker ────────────────────────────────────────────────────────
+
+async function loadRebalances() {
+  try {
+    const res = await fetch('/api/rebalances', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    renderRebalances(data);
+  } catch(e) { console.warn('Could not load rebalances:', e); }
+}
+
+function renderRebalances(data) {
+  const section = document.getElementById('rebalance-section');
+  const body    = document.getElementById('rebalance-body');
+  const badge   = document.getElementById('rebalance-count-badge');
+  const pools   = data.pools || [];
+
+  if (!pools.length) { section.style.display = 'none'; return; }
+
+  const totalRebalances = pools.reduce((s, p) => s + p.rebalance_count, 0);
+  badge.textContent = `${totalRebalances} rebalance${totalRebalances !== 1 ? 's' : ''} tracked`;
+
+  section.style.display = 'block';
+
+  body.innerHTML = pools.map(pool => {
+    const pairLabel = `${pool.token0_symbol}/${pool.token1_symbol} ${(pool.fee_tier/10000).toFixed(2)}%`;
+    const avgDurStr = pool.avg_cycle_duration_sec
+      ? (() => { const h = Math.floor(pool.avg_cycle_duration_sec/3600); const d = Math.floor(h/24); return d > 0 ? `${d}d avg` : `${h}h avg`; })()
+      : '—';
+
+    const cycleRows = (pool.cycles || []).map(c => {
+      const openDate  = new Date(c.open_ts * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'2-digit' });
+      const closeDate = c.close_ts
+        ? new Date(c.close_ts * 1000).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'2-digit' })
+        : '<span style="color:var(--green)">active</span>';
+
+      let durStr = '—';
+      if (c.duration_sec) {
+        const d = Math.floor(c.duration_sec / 86400);
+        const h = Math.floor((c.duration_sec % 86400) / 3600);
+        durStr = d > 0 ? `${d}d ${h}h` : `${h}h`;
+      } else if (!c.close_ts) {
+        const age = Math.floor((Date.now()/1000 - c.open_ts) / 3600);
+        const d = Math.floor(age/24);
+        durStr = `<span style="color:var(--green)">${d > 0 ? d+'d' : age+'h'} open</span>`;
+      }
+
+      const rangeStr = `${fmtPrice(c.price_lower)} – ${fmtPrice(c.price_upper)}`;
+      const feesStr  = c.fees_collected_usd > 0 ? fmtUsd(c.fees_collected_usd) : '—';
+      const pnlUsd   = c.pnl_usd;
+      const pnlStr   = pnlUsd != null
+        ? `<span style="color:${pnlUsd>=0?'var(--green)':'var(--red)'}">${pnlUsd>=0?'+':''}${fmtUsd(pnlUsd)}</span>`
+        : '—';
+
+      return `
+        <div style="display:grid;grid-template-columns:80px 80px 80px 160px 70px 80px 80px;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);align-items:center;font-size:11px;">
+          <span style="color:var(--blue)">#${c.nft_id}</span>
+          <span style="color:var(--muted)">${openDate}</span>
+          <span>${closeDate}</span>
+          <span style="color:var(--muted)">${rangeStr}</span>
+          <span>${durStr}</span>
+          <span style="color:var(--green)">${feesStr}</span>
+          <span>${pnlStr}</span>
+        </div>`;
+    }).join('');
+
+    const summaryColor = pool.total_pnl_usd >= 0 ? 'var(--green)' : 'var(--red)';
+
+    return `
+      <div style="margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:600;color:var(--text)">${pairLabel}</span>
+          <span style="font-size:11px;color:var(--muted)">
+            ${pool.rebalance_count} rebalance${pool.rebalance_count!==1?'s':''} · ${avgDurStr} ·
+            fees <span style="color:var(--green)">${fmtUsd(pool.total_fees_usd)}</span> ·
+            net P&L <span style="color:${summaryColor}">${pool.total_pnl_usd>=0?'+':''}${fmtUsd(pool.total_pnl_usd)}</span>
+          </span>
+        </div>
+        <div style="display:grid;grid-template-columns:80px 80px 80px 160px 70px 80px 80px;gap:8px;padding:0 0 5px;border-bottom:1px solid var(--border2);margin-bottom:2px;">
+          ${['NFT','OPENED','CLOSED','RANGE','DURATION','FEES','P&L'].map(h =>
+            `<span style="font-size:9px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase">${h}</span>`
+          ).join('')}
+        </div>
+        ${cycleRows}
+      </div>`;
+  }).join('<div style="height:1px;background:var(--border);margin:12px 0"></div>');
 }
 
 // ── Per-position range stats & timeline ──────────────────────────────────────
