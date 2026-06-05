@@ -1234,6 +1234,7 @@ async function loadPositions(forceRefresh = false) {
     }
 
     // Auto-save all returned positions so they persist on refresh (works for both NFT ID and wallet)
+    // Also auto-watch for alerts and snapshots
     for (const p of positions) {
       const pid    = String(p.id);
       const pchain = p.chain || currentChain;
@@ -1245,6 +1246,20 @@ async function loadPositions(forceRefresh = false) {
             body: JSON.stringify({ id: pid, chain: pchain })
           });
           if (sr.ok) _saved = await sr.json();
+        } catch(e) {}
+      }
+      // Auto-watch for alerts + snapshots if not already watched
+      const watched = _alertSettings.watched_positions || [];
+      if (!watched.find(w => w.position_id === pid && w.chain === pchain)) {
+        try {
+          await fetch('/api/alert-settings/watch', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ position_id: pid, chain: pchain })
+          });
+          // Refresh local alert settings so watched list stays in sync
+          const ar = await fetch('/api/alert-settings', { credentials: 'same-origin' });
+          if (ar.ok) { _alertSettings = await ar.json(); renderWatchedList(_alertSettings.watched_positions || []); }
         } catch(e) {}
       }
     }
