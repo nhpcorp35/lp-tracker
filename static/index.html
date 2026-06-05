@@ -867,20 +867,21 @@ function hideError() {
   document.getElementById('error-banner').classList.remove('visible');
 }
 
-function buildClTicks(tickLower, tickUpper, tickSpacing, logMin, total) {
-  // Render individual CL tick lines within the position range
-  if (!tickLower || !tickUpper || !tickSpacing) return '';
+function buildClTicks(tickLower, tickUpper, tickSpacing, logL, logU, logMin, total) {
+  // Render individual CL tick lines within the position range.
+  // Uses linear interpolation in tick→log-price space (exact, since log(price) = tick*log(1.0001)+C)
+  // so no decimal adjustment is needed — logL/logU are the anchors from the backend's price_lower/upper.
+  if (tickLower == null || tickUpper == null || !tickSpacing) return '';
   const marks = [];
-  // Only render ticks inside the position range, skip endpoints (already shown as boundary ticks)
+  // Only render ticks inside the position range, skip endpoints (already shown as boundary marks)
   const firstInnerTick = tickLower + tickSpacing;
   const lastInnerTick  = tickUpper - tickSpacing;
   const maxTicks = 40; // cap for very wide ranges
   const step = Math.max(tickSpacing, Math.ceil((tickUpper - tickLower) / maxTicks / tickSpacing) * tickSpacing);
 
   for (let t = firstInnerTick; t <= lastInnerTick; t += step) {
-    const price = tickToPrice(t);
-    const logP  = Math.log(price);
-    const pct   = ((logP - logMin) / total * 100);
+    const logP = logL + (t - tickLower) / (tickUpper - tickLower) * (logU - logL);
+    const pct  = (logP - logMin) / total * 100;
     if (pct < 0 || pct > 100) continue;
     marks.push(`<div style="position:absolute;top:0;left:${pct.toFixed(2)}%;width:1px;height:100%;background:rgba(255,255,255,0.12);transform:translateX(-50%);pointer-events:none"></div>`);
   }
@@ -940,7 +941,7 @@ function buildRangeBar(pos) {
       </div>
       <div class="range-bar">
         <div class="range-fill ${fillClass}" style="left:${fillLeft}%;width:${fillWidth}%"></div>
-        ${buildClTicks(tickLower, tickUpper, tickSpacing, logMin, total)}
+        ${buildClTicks(tickLower, tickUpper, tickSpacing, logL, logU, logMin, total)}
         <div class="range-tick" style="left:${tickPct}%"></div>
         <div style="position:absolute;top:-4px;left:${lowerTickPct}%;width:2px;height:14px;background:var(--border2);border-radius:1px;transform:translateX(-50%)"></div>
         <div style="position:absolute;top:-4px;left:${upperTickPct}%;width:2px;height:14px;background:var(--border2);border-radius:1px;transform:translateX(-50%)"></div>
