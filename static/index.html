@@ -867,11 +867,39 @@ function hideError() {
   document.getElementById('error-banner').classList.remove('visible');
 }
 
+function buildClTicks(tickLower, tickUpper, tickSpacing, logMin, total) {
+  // Render individual CL tick lines within the position range
+  if (!tickLower || !tickUpper || !tickSpacing) return '';
+  const marks = [];
+  // Only render ticks inside the position range, skip endpoints (already shown as boundary ticks)
+  const firstInnerTick = tickLower + tickSpacing;
+  const lastInnerTick  = tickUpper - tickSpacing;
+  const maxTicks = 40; // cap for very wide ranges
+  const step = Math.max(tickSpacing, Math.ceil((tickUpper - tickLower) / maxTicks / tickSpacing) * tickSpacing);
+
+  for (let t = firstInnerTick; t <= lastInnerTick; t += step) {
+    const price = tickToPrice(t);
+    const logP  = Math.log(price);
+    const pct   = ((logP - logMin) / total * 100);
+    if (pct < 0 || pct > 100) continue;
+    marks.push(`<div style="position:absolute;top:0;left:${pct.toFixed(2)}%;width:1px;height:100%;background:rgba(255,255,255,0.12);transform:translateX(-50%);pointer-events:none"></div>`);
+  }
+  return marks.join('');
+}
+
+function tickToPrice(tick) {
+  // Uniswap V3: price = 1.0001^tick (token1/token0)
+  return Math.pow(1.0001, tick);
+}
+
 function buildRangeBar(pos) {
   const lower = pos.price_lower;
   const upper = pos.price_upper;
   const current = pos.current_price;
   const inRange = pos.in_range;
+  const tickLower   = pos.tick_lower;
+  const tickUpper   = pos.tick_upper;
+  const tickSpacing = pos.tick_spacing || 60;
 
   // Compute position of current tick as % along [lower, upper] range
   // Use log scale for better visual
@@ -912,6 +940,7 @@ function buildRangeBar(pos) {
       </div>
       <div class="range-bar">
         <div class="range-fill ${fillClass}" style="left:${fillLeft}%;width:${fillWidth}%"></div>
+        ${buildClTicks(tickLower, tickUpper, tickSpacing, logMin, total)}
         <div class="range-tick" style="left:${tickPct}%"></div>
         <div style="position:absolute;top:-4px;left:${lowerTickPct}%;width:2px;height:14px;background:var(--border2);border-radius:1px;transform:translateX(-50%)"></div>
         <div style="position:absolute;top:-4px;left:${upperTickPct}%;width:2px;height:14px;background:var(--border2);border-radius:1px;transform:translateX(-50%)"></div>

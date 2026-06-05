@@ -850,6 +850,7 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         "token1":       {"symbol": t1["symbol"], "address": t1["id"], "decimals": dec1},
         "fee_tier":     int(pool["feeTier"]),
         "fee_tier_pct": int(pool["feeTier"]) / 10000,
+        "tick_spacing": {100: 1, 500: 10, 3000: 60, 10000: 200}.get(int(pool["feeTier"]), 60),
         "pool_address": pool["id"],
 
         # Amounts
