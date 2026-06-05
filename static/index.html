@@ -1208,18 +1208,25 @@ async function loadPositions(forceRefresh = false) {
       document.getElementById('watch-current-btn').style.display = 'inline-block';
       document.getElementById('save-pos-btn').style.display = 'inline-block';
       updateSaveBtn();
-      // Auto-save so position persists on refresh without clicking the save button
-      if (positions.length > 0 && !_saved.find(s => s.id === input && s.chain === currentChain)) {
+    }
+
+    // Auto-save all returned positions so they persist on refresh (works for both NFT ID and wallet)
+    for (const p of positions) {
+      const pid    = String(p.id);
+      const pchain = p.chain || currentChain;
+      if (!_saved.find(s => s.id === pid && s.chain === pchain)) {
         try {
           const sr = await fetch('/api/saved-positions', {
             method: 'POST', credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ id: input, chain: currentChain })
+            body: JSON.stringify({ id: pid, chain: pchain })
           });
-          if (sr.ok) { _saved = await sr.json(); renderSavedChips(); updateSaveBtn(); }
+          if (sr.ok) _saved = await sr.json();
         } catch(e) {}
       }
     }
+    renderSavedChips();
+    updateSaveBtn();
 
     // Remember last-loaded input for instant restore on refresh
     try { localStorage.setItem('lp_last_input', input); } catch(e) {}
