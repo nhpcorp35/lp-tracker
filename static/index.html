@@ -1208,7 +1208,21 @@ async function loadPositions(forceRefresh = false) {
       document.getElementById('watch-current-btn').style.display = 'inline-block';
       document.getElementById('save-pos-btn').style.display = 'inline-block';
       updateSaveBtn();
+      // Auto-save so position persists on refresh without clicking the save button
+      if (positions.length > 0 && !_saved.find(s => s.id === input && s.chain === currentChain)) {
+        try {
+          const sr = await fetch('/api/saved-positions', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ id: input, chain: currentChain })
+          });
+          if (sr.ok) { _saved = await sr.json(); renderSavedChips(); updateSaveBtn(); }
+        } catch(e) {}
+      }
     }
+
+    // Remember last-loaded input for instant restore on refresh
+    try { localStorage.setItem('lp_last_input', input); } catch(e) {}
 
     // Reload entries fresh before rendering so P/L is always current
     await loadLpEntries();
@@ -1497,8 +1511,18 @@ loadAlertSettings();
 // Load LP entries on startup
 loadLpEntries();
 
-// Load saved positions from server on startup
-loadSaved();
+// Load saved positions from server on startup; fall back to localStorage if nothing saved yet
+loadSaved().then(() => {
+  if (lastPositions.length === 0 && !walletParam) {
+    try {
+      const last = localStorage.getItem('lp_last_input');
+      if (last) {
+        document.getElementById('wallet-input').value = last;
+        loadPositions();
+      }
+    } catch(e) {}
+  }
+});
 
 // Check URL params for wallet
 const params = new URLSearchParams(window.location.search);
