@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LP Tracker</title>
+<title>LP Tracker — Position</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f1318'/><text y='24' x='4' font-size='22' fill='%234a9eff'>◈</text></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -130,43 +130,43 @@
   .wallet-input:focus { border-color:var(--blue); }
   .wallet-input::placeholder { color:var(--muted); }
 
-  /* Portfolio table */
-  .portfolio-table { width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px; }
-  .portfolio-table th { padding:8px 12px;text-align:left;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid var(--border);white-space:nowrap; }
-  .portfolio-table td { padding:12px 12px;border-bottom:1px solid var(--border);vertical-align:middle; }
-  .portfolio-table tr:hover td { background:rgba(74,158,255,0.04);cursor:pointer; }
-  .portfolio-table tr.in-range td:first-child { border-left:3px solid var(--green); }
-  .portfolio-table tr.out-of-range td:first-child { border-left:3px solid var(--red); }
-  .status-pill { display:inline-block;font-size:10px;padding:2px 8px;border-radius:12px;font-weight:500;white-space:nowrap; }
-  .status-pill.in { background:var(--green-dim);color:var(--green); }
-  .status-pill.out { background:var(--red-dim);color:var(--red); }
-  .chain-badge { display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue);margin-left:4px; }
-  .mini-bar { height:4px;background:var(--border);border-radius:2px;position:relative;overflow:visible;min-width:80px; }
-  .mini-fill { position:absolute;top:0;height:100%;border-radius:2px;background:var(--green);opacity:0.5; }
-  .mini-fill.out { background:var(--red); }
-  .mini-tick { position:absolute;top:-2px;width:2px;height:8px;background:var(--blue);border-radius:1px;transform:translateX(-50%); }
-  .tbl-link { color:var(--muted);text-decoration:none;font-size:16px;padding:4px 8px; }
-  .tbl-link:hover { color:var(--blue); }
-  .add-form { display:flex;gap:8px;align-items:center;margin-left:auto; }
+  .position-card { background:var(--surface);border:1px solid var(--border2);border-radius:12px;overflow:hidden;max-width:900px;margin:0 auto 20px; }
+  .position-card.in-range  { border-left:3px solid var(--green); }
+  .position-card.out-of-range { border-left:3px solid var(--red); }
+  .card-header { padding:14px 18px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border); }
+  .pair { display:flex;align-items:center;gap:8px; }
+  .pair-tokens { font-family:var(--mono);font-size:15px;font-weight:600;color:#fff; }
+  .fee-badge { font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:4px;background:var(--blue-dim);color:var(--blue);border:1px solid rgba(74,158,255,0.2); }
+  .range-badge { font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:20px;font-weight:500;letter-spacing:0.04em; }
+  .range-badge.in { background:var(--green-dim);color:var(--green); }
+  .range-badge.out { background:var(--red-dim);color:var(--red); }
+  .card-body { padding:16px 18px;display:flex;flex-direction:column;gap:14px; }
+  .value-row { display:flex;align-items:baseline;justify-content:space-between; }
+  .value-total { font-family:var(--mono);font-size:24px;font-weight:600;color:#fff; }
+  .value-pnl { font-family:var(--mono);font-size:13px;font-weight:500; }
+  .value-pnl.pos { color:var(--green); }
+  .value-pnl.neg { color:var(--red); }
+  .value-pnl.neutral { color:var(--muted); }
+  .card-footer { padding:10px 18px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between; }
+  .position-id { font-family:var(--mono);font-size:10px;color:var(--muted); }
+  .position-id a { color:var(--muted);text-decoration:none; }
+  .position-id a:hover { color:var(--blue); }
+  .header-actions { display:flex;gap:8px;align-items:center;margin-left:auto; }
+  .save-pos-btn { background:none;border:1px solid var(--border2);border-radius:6px;color:var(--muted);font-family:var(--mono);font-size:11px;padding:5px 10px;cursor:pointer;transition:all 0.15s; }
+  .save-pos-btn:hover { color:var(--amber);border-color:var(--amber); }
+  .save-pos-btn.saved { color:var(--amber);border-color:var(--amber);background:rgba(245,166,35,0.08); }
 </style>
 </head>
 <body>
 
 <header>
+  <a href="/" class="back-btn">← Portfolio</a>
   <a href="/" class="logo" style="text-decoration:none">LP Tracker</a>
-  <div class="chain-selector">
-    <span class="chain-selector-label">Filter:</span>
-    <button class="chain-btn active" onclick="selectChain("base")"         id="chain-base">Base</button>
-    <button class="chain-btn"        onclick="selectChain("base-pancake")" id="chain-base-pancake">Cake</button>
-    <button class="chain-btn"        onclick="selectChain("ethereum")"     id="chain-ethereum">ETH</button>
-    <button class="chain-btn"        onclick="selectChain("arbitrum")"     id="chain-arbitrum">ARB</button>
+  <div id="pos-header-title" style="font-family:var(--mono);font-size:13px;color:var(--muted);"></div>
+  <div class="header-actions">
+    <button class="btn btn-sm" id="refresh-btn" onclick="reloadCurrentPosition()">↻ Refresh</button>
+    <button class="btn btn-sm" onclick="toggleAlertPanel()">🔔 Alerts</button>
   </div>
-  <div class="add-form">
-    <input type="text" class="wallet-input" id="wallet-input" placeholder="Wallet 0x... or NFT ID" autocomplete="off" spellcheck="false" style="max-width:280px">
-    <button class="btn" id="load-btn" onclick="addPosition()">Add</button>
-  </div>
-  <button class="btn btn-sm" onclick="refreshAll()" id="refresh-btn">↻ Refresh</button>
-  <button class="btn btn-sm" onclick="toggleAlertPanel()" id="alert-btn">🔔 Alerts</button>
 </header>
 
 
@@ -227,39 +227,11 @@
 <main>
   <div id="status-bar">
     <div class="status-dot" id="status-dot"></div>
-    <span id="status-text">Loading portfolio…</span>
+    <span id="status-text">Loading position…</span>
   </div>
   <div class="error-banner" id="error-banner"></div>
 
-  <div id="summary" style="display:none">
-    <div class="summary">
-      <div class="summary-stat"><div class="summary-label">Total Value</div><div class="summary-value" id="s-total-value">—</div><div class="summary-sub" id="s-positions">0 positions</div></div>
-      <div class="summary-stat"><div class="summary-label">Uncollected Fees</div><div class="summary-value" id="s-fees">—</div><div class="summary-sub" id="s-fees-sub">uncollected</div></div>
-      <div class="summary-stat"><div class="summary-label">In Range</div><div class="summary-value" id="s-in-range">—</div><div class="summary-sub" id="s-range-sub">—</div></div>
-      <div class="summary-stat"><div class="summary-label">Total P/L</div><div class="summary-value" id="s-pnl">—</div><div class="summary-sub" id="s-pnl-sub">—</div></div>
-      <div class="summary-stat"><div class="summary-label">Avg APR (est.)</div><div class="summary-value" id="s-apr">—</div><div class="summary-sub">position-weighted</div></div>
-    </div>
-  </div>
-
-  <!-- Portfolio table -->
-  <div id="portfolio-section" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;display:none;">
-    <table class="portfolio-table">
-      <thead>
-        <tr>
-          <th>Pair</th><th>Status</th><th>Value</th><th>Fees</th>
-          <th>Your APR</th><th>P&L</th><th>Range</th><th>Age</th><th></th>
-        </tr>
-      </thead>
-      <tbody id="portfolio-tbody"></tbody>
-    </table>
-  </div>
-
-  <div id="empty-state-main" style="display:none">
-    <div class="empty-state">
-      <div class="icon">◈</div>
-      <p>No saved positions yet.<br>Enter a wallet address or NFT ID above to get started.</p>
-    </div>
-  </div>
+  <div id="position-detail"></div>
 
 
   <div id="history-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
@@ -282,6 +254,19 @@
       <div><div style="color:var(--muted);margin-bottom:2px;">LOW VALUE</div><div id="hist-low" style="color:var(--text);font-weight:600;">—</div></div>
       <div><div style="color:var(--muted);margin-bottom:2px;">AVG APR</div><div id="hist-avg-apr" style="color:var(--green);font-weight:600;">—</div></div>
       <div><div style="color:var(--muted);margin-bottom:2px;">TIME IN RANGE</div><div id="hist-efficiency" style="color:var(--green);font-weight:600;">—</div></div>
+    </div>
+  </div>
+
+
+  <!-- Range history timeline (position-level) -->
+  <div id="range-timeline-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;max-width:900px;margin-left:auto;margin-right:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">📊 RANGE HISTORY</div>
+      <span id="tir-summary" style="font-family:var(--mono);font-size:11px;color:var(--muted)"></span>
+    </div>
+    <div id="range-bar-timeline" style="height:10px;background:var(--border);border-radius:5px;overflow:hidden;position:relative;"></div>
+    <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:4px;">
+      <span id="tir-oldest"></span><span id="tir-newest">now</span>
     </div>
   </div>
 
@@ -337,6 +322,68 @@ function setStatus(text, state = "neutral") {
 }
 function showError(msg) { const el = document.getElementById("error-banner"); el.textContent = msg; el.classList.add("visible"); }
 function hideError() { document.getElementById("error-banner").classList.remove("visible"); }
+
+
+function buildClTicks(tickLower, tickUpper, tickSpacing, logL, logU, logMin, total) {
+  if (tickLower == null || tickUpper == null || !tickSpacing) return "";
+  const tickRange = tickUpper - tickLower;
+  const logMax   = logMin + total;
+  const tBarMin  = tickLower + (logMin - logL) / (logU - logL) * tickRange;
+  const tBarMax  = tickLower + (logMax - logL) / (logU - logL) * tickRange;
+  const firstTick = Math.ceil(tBarMin  / tickSpacing) * tickSpacing;
+  const lastTick  = Math.floor(tBarMax / tickSpacing) * tickSpacing;
+  const maxTicks = 60;
+  const visibleCount = (lastTick - firstTick) / tickSpacing;
+  const step = Math.max(tickSpacing, Math.ceil(visibleCount / maxTicks) * tickSpacing);
+  const marks = [];
+  for (let t = firstTick; t <= lastTick; t += step) {
+    const logP = logL + (t - tickLower) / tickRange * (logU - logL);
+    const pct  = (logP - logMin) / total * 100;
+    if (pct < 0 || pct > 100) continue;
+    const inside = t > tickLower && t < tickUpper;
+    const alpha  = inside ? 0.35 : 0.18;
+    marks.push(`<div style="position:absolute;top:-4px;left:${pct.toFixed(2)}%;width:1px;height:14px;background:rgba(255,255,255,${alpha});transform:translateX(-50%);pointer-events:none"></div>`);
+  }
+  return marks.join("");
+}
+function buildRangeBar(pos) {
+  const lower = pos.price_lower, upper = pos.price_upper, current = pos.current_price;
+  const inRange = pos.in_range;
+  const tickLower = pos.tick_lower, tickUpper = pos.tick_upper, tickSpacing = pos.tick_spacing || 60;
+  const logL = Math.log(lower), logU = Math.log(upper), logC = Math.log(current);
+  const padding = (logU - logL) * 0.5;
+  const logMin = logL - padding, logMax = logU + padding, total = logMax - logMin;
+  const fillLeft  = ((logL - logMin) / total * 100).toFixed(1);
+  const fillRight = ((logMax - logU)  / total * 100).toFixed(1);
+  const fillWidth = (100 - parseFloat(fillLeft) - parseFloat(fillRight)).toFixed(1);
+  const tickPct   = ((logC - logMin) / total * 100).toFixed(1);
+  const fillClass = inRange ? "" : "out";
+  const distToLower = ((current - lower) / current * 100).toFixed(1);
+  const distToUpper = ((upper - current) / current * 100).toFixed(1);
+  const lowerClass = parseFloat(distToLower) < 5 ? "color:var(--red)" : parseFloat(distToLower) < 10 ? "color:var(--amber)" : "color:var(--muted)";
+  const upperClass = parseFloat(distToUpper) < 5 ? "color:var(--red)" : parseFloat(distToUpper) < 10 ? "color:var(--amber)" : "color:var(--muted)";
+  const lowerTickPct = parseFloat(fillLeft).toFixed(1);
+  const upperTickPct = (parseFloat(fillLeft) + parseFloat(fillWidth)).toFixed(1);
+  return `
+    <div class="range-section">
+      <div class="range-label">
+        <span>Price Range</span>
+        <span>${inRange ? "● in range" : "● out of range"}</span>
+      </div>
+      <div class="range-bar">
+        <div class="range-fill ${fillClass}" style="left:${fillLeft}%;width:${fillWidth}%"></div>
+        ${buildClTicks(tickLower, tickUpper, tickSpacing, logL, logU, logMin, total)}
+        <div class="range-tick" style="left:${tickPct}%"></div>
+        <div style="position:absolute;top:-4px;left:${lowerTickPct}%;width:2px;height:14px;background:var(--border2);border-radius:1px;transform:translateX(-50%)"></div>
+        <div style="position:absolute;top:-4px;left:${upperTickPct}%;width:2px;height:14px;background:var(--border2);border-radius:1px;transform:translateX(-50%)"></div>
+      </div>
+      <div class="range-prices">
+        <span>${fmtPrice(lower)}<br><span style="font-size:9px;${lowerClass}">${inRange ? distToLower + "% away" : "below"}</span></span>
+        <span style="color:var(--blue)">▲ ${fmtPrice(current)}</span>
+        <span style="text-align:right">${fmtPrice(upper)}<br><span style="font-size:9px;${upperClass}">${inRange ? distToUpper + "% away" : "above"}</span></span>
+      </div>
+    </div>`;
+}
 
 
 let _alertSettings = {};
@@ -555,231 +602,224 @@ function renderRebalances(data) {
 }
 
 
-// ── Chain selector ───────────────────────────────────────────────────────────
-const CHAINS = { base:1, "base-pancake":1, ethereum:1, arbitrum:1 };
-let currentChain = "base";
-function selectChain(chain, reload=false) {
-  currentChain = chain;
-  document.querySelectorAll(".chain-btn").forEach(b => b.classList.remove("active"));
-  const btn = document.getElementById("chain-" + chain);
-  if (btn) btn.classList.add("active");
-  if (reload) loadPortfolio();
+// ── Read position ID and chain from URL ───────────────────────────────────────
+const positionId = window.location.pathname.split("/").pop();
+const chain = new URLSearchParams(window.location.search).get("chain") || "base";
+let currentChain = chain;
+let _currentPositionId = positionId;
+let _currentChain = chain;
+let _pos = null;
+let _saved = [];
+
+// ── Load saved list for save button state ─────────────────────────────────────
+async function loadSaved() {
+  try { const res = await fetch("/api/saved-positions",{credentials:"same-origin"}); if(res.ok) _saved=await res.json(); } catch(e) {}
+  updateSaveBtn();
+}
+function updateSaveBtn() {
+  const btn = document.getElementById("save-pos-btn");
+  if (!btn) return;
+  const exists = _saved.find(s => s.id===positionId && s.chain===chain);
+  btn.textContent = exists ? "⭐ Saved" : "⭐ Save";
+  btn.classList.toggle("saved", !!exists);
+}
+async function toggleSavePosition() {
+  const exists = _saved.find(s => s.id===positionId && s.chain===chain);
+  if (exists) {
+    await fetch(`/api/saved-positions/${positionId}/${chain}`,{method:"DELETE",credentials:"same-origin"});
+  } else {
+    await fetch("/api/saved-positions",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:positionId,chain})});
+  }
+  await loadSaved();
 }
 
-// ── Portfolio state ───────────────────────────────────────────────────────────
-let _saved = [];
-let _allPositions = [];
+// ── Build full detail card ────────────────────────────────────────────────────
+function buildDetailCard(pos) {
+  const inRange = pos.in_range;
+  const pair = `${pos.token0.symbol} / ${pos.token1.symbol}`;
+  const feePct = pos.fee_tier_pct.toFixed(2) + "%";
+  const pnlUsd = pos.pnl_usd, pnlPct = pos.pnl_pct;
+  const pnlClass = pnlUsd==null?"neutral":pnlUsd>=0?"pos":"neg";
+  const manualDot = pos.is_manual_pnl
+    ? `<span title="Manual entry" style="color:var(--blue);font-size:9px;margin-left:2px">●</span>`
+    : `<span title="Subgraph estimate" style="color:var(--muted);font-size:9px;margin-left:2px">○</span>`;
+  const editBtn = `<button class="entry-edit-btn" onclick="openEntryModal('${pos.id}','${pair}')" title="Set entry">✏️</button>`;
+  const pnlStr = pnlUsd!=null ? `${pnlUsd>=0?"+":""}${fmtUsd(pnlUsd)} (${fmtPct(pnlPct)})${manualDot} ${editBtn}` : `— ${editBtn}`;
+  const fee0Str = `${fmtToken(pos.fee0,pos.token0.symbol)} ${pos.token0.symbol}`;
+  const fee1Str = `${fmtToken(pos.fee1,pos.token1.symbol)} ${pos.token1.symbol}`;
+  const ilStr = pos.il_pct!=null ? `${fmtPct(pos.il_pct)} IL` : "—";
+  const ilClass = pos.il_pct==null?"muted":pos.il_pct>=0?"green":"red";
+  const rangeMid = (pos.price_lower+pos.price_upper)/2;
+  const rangeHalfPct = rangeMid>0 ? ((pos.price_upper-pos.price_lower)/2/rangeMid*100) : null;
+  const rangeWidthStr = rangeHalfPct!=null ? `±${rangeHalfPct.toFixed(1)}%` : "—";
+  const dexLabel = chain==="base-pancake"?"PancakeSwap":"Uniswap";
+  const dexLink  = chain==="base-pancake" ? `https://pancakeswap.finance/liquidity/${pos.id}` : `https://app.uniswap.org/pools/${pos.id}`;
+  const openDate = pos.entry_timestamp ? new Date(pos.entry_timestamp*1000).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "";
+  const age = pos.entry_timestamp ? timeAgo(pos.entry_timestamp) : "";
 
-// ── Mini range bar for table ─────────────────────────────────────────────────
-function buildMiniBar(pos) {
-  if (!pos.price_lower || !pos.price_upper || !pos.current_price) return "<div class='mini-bar'></div>";
-  const lower = pos.price_lower, upper = pos.price_upper, current = pos.current_price;
-  const logL = Math.log(lower), logU = Math.log(upper), logC = Math.log(current);
-  const padding = (logU - logL) * 0.5;
-  const logMin = logL - padding, total = (logU + padding) - logMin;
-  const fillLeft  = ((logL - logMin) / total * 100).toFixed(1);
-  const fillWidth = ((logU - logL) / total * 100).toFixed(1);
-  const tickPct   = ((logC - logMin) / total * 100).toFixed(1);
-  return `<div class="mini-bar" style="min-width:100px">
-    <div class="mini-fill ${pos.in_range ? "" : "out"}" style="left:${fillLeft}%;width:${fillWidth}%"></div>
-    <div class="mini-tick" style="left:${tickPct}%"></div>
+  return `
+  <div class="position-card ${inRange?"in-range":"out-of-range"}">
+    <div class="card-header">
+      <div class="pair">
+        <div class="pair-tokens">${pair}</div>
+        <div class="fee-badge">${feePct}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="save-pos-btn" id="save-pos-btn" onclick="toggleSavePosition()">⭐ Save</button>
+        <button class="btn btn-sm" onclick="watchCurrentPosition()" id="watch-current-btn">+ Watch</button>
+        <div class="range-badge ${inRange?"in":"out"}">${inRange?"● IN RANGE":"● OUT OF RANGE"}</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="value-row">
+        <div class="value-total">${fmtUsd(pos.value_usd)}</div>
+        <div class="value-pnl ${pnlClass}">${pnlStr}</div>
+      </div>
+      <div class="amounts">
+        <div class="amount-box"><div class="amount-label">${pos.token0.symbol}</div><div class="amount-value">${fmtToken(pos.amount0,pos.token0.symbol)}<span class="amount-symbol">${pos.token0.symbol}</span></div></div>
+        <div class="amount-box"><div class="amount-label">${pos.token1.symbol}</div><div class="amount-value">${fmtToken(pos.amount1,pos.token1.symbol)}<span class="amount-symbol">${pos.token1.symbol}</span></div></div>
+      </div>
+      <div class="fees-row">
+        <div><div class="fees-label">Uncollected Fees</div><div class="fees-breakdown">${fee0Str} · ${fee1Str}</div></div>
+        <div class="fees-value">${fmtUsd(pos.fees_usd)}</div>
+      </div>
+      ${buildRangeBar(pos)}
+      <div class="divider"></div>
+      <div class="stats" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat"><div class="stat-label">APR</div>
+          <div class="stat-value">${pos.apr_estimate!=null?"+"+fmtPct(pos.apr_estimate):"—"}</div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted)">Advertised ${pos.advertised_apr!=null?"+"+fmtPct(pos.advertised_apr):"—"}</div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted)">Real ${pos.real_apr!=null?"+"+fmtPct(pos.real_apr):"—"}</div>
+        </div>
+        <div class="stat"><div class="stat-label">Range Width</div><div class="stat-value">${rangeWidthStr}</div></div>
+        <div class="stat"><div class="stat-label">Imp. Loss</div><div class="stat-value ${ilClass}">${ilStr}</div></div>
+        <div class="stat"><div class="stat-label">Position Age</div><div class="stat-value">${age||"—"}</div><div style="font-family:var(--mono);font-size:9px;color:var(--muted)">${openDate}</div></div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div class="position-id">ID #${pos.id} · <a href="${dexLink}" target="_blank">→ ${dexLabel}</a></div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${fmtPrice(pos.current_price)} current</div>
+    </div>
   </div>`;
 }
 
-// ── Render portfolio table ────────────────────────────────────────────────────
-function renderPortfolioTable(positions) {
-  const tbody = document.getElementById("portfolio-tbody");
-  const section = document.getElementById("portfolio-section");
-  const empty = document.getElementById("empty-state-main");
-
-  if (!positions.length) {
-    section.style.display = "none";
-    empty.style.display = "block";
-    return;
-  }
-  section.style.display = "block";
-  empty.style.display = "none";
-
-  tbody.innerHTML = positions.map(pos => {
-    const pair = `${pos.token0.symbol}/${pos.token1.symbol}`;
-    const feePct = (pos.fee_tier_pct).toFixed(2) + "%";
-    const chainLabel = { "base":"Uni","base-pancake":"Cake","ethereum":"ETH","arbitrum":"ARB" }[pos.chain] || pos.chain;
-    const age = pos.entry_timestamp
-      ? new Date(pos.entry_timestamp*1000).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"})
-      : "—";
-    const pnlUsd = pos.pnl_usd;
-    const pnlStr = pnlUsd != null
-      ? `<span style="color:${pnlUsd>=0?"var(--green)":"var(--red)"}">${pnlUsd>=0?"+":""}${fmtUsd(pnlUsd)}</span>`
-      : "<span style='color:var(--muted)'>—</span>";
-    const aprStr = pos.apr_estimate != null
-      ? `<span style="color:${pos.apr_estimate>=10?"var(--green)":pos.apr_estimate>=3?"var(--amber)":"var(--red)"}">${fmtPct(pos.apr_estimate)}</span>`
-      : "—";
-    const detailUrl = `/position/${pos.id}?chain=${pos.chain || currentChain}`;
-
-    return `<tr class="${pos.in_range?"in-range":"out-of-range"}" onclick="window.location='${detailUrl}'">
-      <td>
-        <div style="font-weight:600;color:#fff">${pair} <span class="fee-badge" style="font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue)">${feePct}</span></div>
-        <div style="color:var(--muted);font-size:10px;margin-top:2px">#${pos.id} <span class="chain-badge">${chainLabel}</span></div>
-      </td>
-      <td><span class="status-pill ${pos.in_range?"in":"out"}">${pos.in_range?"● IN":"● OUT"}</span></td>
-      <td style="color:#fff;font-weight:500">${fmtUsd(pos.value_usd)}</td>
-      <td style="color:#2dd4d0">${fmtUsd(pos.fees_usd)}</td>
-      <td>${aprStr}</td>
-      <td>${pnlStr} <button class="entry-edit-btn" onclick="event.stopPropagation();openEntryModal('${pos.id}','${pair}')" title="Set entry">✏️</button></td>
-      <td>${buildMiniBar(pos)}</td>
-      <td style="color:var(--muted)">${age}</td>
-      <td><a href="${detailUrl}" class="tbl-link" onclick="event.stopPropagation()">→</a></td>
-    </tr>`;
-  }).join("");
-}
-
-// ── Render summary bar ────────────────────────────────────────────────────────
-function renderSummary(positions) {
-  if (!positions.length) { document.getElementById("summary").style.display = "none"; return; }
-  const totalValue = positions.reduce((s,p) => s + (p.value_usd||0), 0);
-  const totalFees  = positions.reduce((s,p) => s + (p.fees_usd||0), 0);
-  const inRange    = positions.filter(p => p.in_range).length;
-  const totalPnl   = positions.reduce((s,p) => s + (p.pnl_usd||0), 0);
-  const hasPnl     = positions.some(p => p.pnl_usd != null);
-  const totalDep   = positions.reduce((s,p) => s + (p.deposit_usd||0), 0);
-  const aprs       = positions.filter(p => p.apr_estimate != null);
-  const avgApr     = aprs.length ? aprs.reduce((s,p)=>s+p.apr_estimate*(p.value_usd||0),0)/aprs.reduce((s,p)=>s+(p.value_usd||0),0) : null;
-  document.getElementById("s-total-value").textContent = fmtUsd(totalValue);
-  document.getElementById("s-positions").textContent   = `${positions.length} position${positions.length!==1?"s":""}`;
-  document.getElementById("s-fees").textContent        = fmtUsd(totalFees);
-  document.getElementById("s-in-range").textContent    = `${inRange} / ${positions.length}`;
-  document.getElementById("s-range-sub").textContent   = inRange===positions.length?"all in range":`${positions.length-inRange} out of range`;
-  const pnlEl = document.getElementById("s-pnl");
-  pnlEl.textContent = hasPnl ? fmtUsd(totalPnl) : "—";
-  pnlEl.style.color = hasPnl ? (totalPnl>=0?"var(--green)":"var(--red)") : "var(--text)";
-  document.getElementById("s-pnl-sub").textContent = hasPnl && totalDep>0 ? fmtPct(totalPnl/totalDep*100)+" total" : "—";
-  document.getElementById("s-apr").textContent = avgApr!=null ? fmtPct(avgApr) : "—";
-  document.getElementById("s-apr").style.color = avgApr!=null?(avgApr>=10?"var(--green)":avgApr>=3?"var(--amber)":"var(--red)"):"var(--text)";
-  document.getElementById("summary").style.display = "block";
-}
-
-// ── Load all saved positions in parallel ──────────────────────────────────────
-async function loadPortfolio() {
-  setStatus("Loading portfolio…", "neutral");
+// ── Load this position ────────────────────────────────────────────────────────
+async function loadPosition() {
+  setStatus("Loading…", "neutral");
   try {
-    const res = await fetch("/api/saved-positions", { credentials:"same-origin" });
-    _saved = res.ok ? await res.json() : [];
-  } catch(e) { _saved = []; }
-
-  if (!_saved.length) {
-    document.getElementById("empty-state-main").style.display = "block";
-    document.getElementById("portfolio-section").style.display = "none";
-    document.getElementById("summary").style.display = "none";
-    setStatus("No saved positions", "neutral");
-    return;
-  }
-
-  // Fetch all positions in parallel
-  const results = await Promise.allSettled(_saved.map(async s => {
-    const res = await fetch(`/api/position/${s.id}?chain=${s.chain}`, { credentials:"same-origin" });
+    const res = await fetch(`/api/position/${positionId}?chain=${chain}`, { credentials:"same-origin" });
     const data = await res.json();
+    if (data.error) { showError(data.error); setStatus("Error", "warn"); return; }
     const positions = data.positions || [];
-    positions.forEach(p => { p.chain = s.chain; });
-    return positions[0] || null;
-  }));
-
-  _allPositions = results
-    .filter(r => r.status==="fulfilled" && r.value)
-    .map(r => r.value);
-
-  await loadLpEntries();
-  renderSummary(_allPositions);
-  renderPortfolioTable(_allPositions);
-  loadHistory();
-  loadRangeEvents(null);
-  loadRebalances(null);
-
-  const inRange = _allPositions.filter(p => p.in_range).length;
-  setStatus(`${_allPositions.length} position${_allPositions.length!==1?"s":""} · ${inRange} in range · updated just now`, "ok");
+    if (!positions.length) { showError("Position not found."); return; }
+    _pos = positions[0]; _pos.chain = chain;
+    document.getElementById("position-detail").innerHTML = buildDetailCard(_pos);
+    document.getElementById("pos-header-title").textContent = `${_pos.token0.symbol}/${_pos.token1.symbol} #${positionId}`;
+    document.title = `LP Tracker — ${_pos.token0.symbol}/${_pos.token1.symbol} #${positionId}`;
+    updateSaveBtn();
+    const inRangeStr = _pos.in_range ? "in range" : "out of range";
+    setStatus(`#${positionId} · ${fmtUsd(_pos.value_usd)} · ${inRangeStr} · updated just now`, "ok");
+    // Load all detail components
+    loadHistory();
+    loadRangeStatsAndTimeline();
+    loadRangeEvents(positionId);
+    const poolKey = `${chain}:${_pos.pool_address}`;
+    loadRebalances(poolKey);
+  } catch(e) { showError("Network error: " + e.message); setStatus("Error", "warn"); }
 }
 
-async function refreshAll() {
-  await loadPortfolio();
-}
+function reloadCurrentPosition() { loadPosition(); }
 
-// ── Add a new position (wallet or NFT ID) ─────────────────────────────────────
-async function addPosition() {
-  const input = document.getElementById("wallet-input").value.trim();
-  if (!input) return;
-  const isPositionId = /^\d+$/.test(input);
-  const isWallet = input.startsWith("0x") && input.length === 42;
-  if (!isPositionId && !isWallet) { showError("Enter a valid wallet (0x...) or NFT ID."); return; }
-  hideError();
-  const btn = document.getElementById("load-btn");
-  btn.disabled = true; btn.textContent = "Adding…";
-  try {
-    const url = isPositionId ? `/api/position/${input}?chain=auto` : `/api/positions?wallet=${encodeURIComponent(input)}&chain=all`;
-    const res = await fetch(url, { credentials:"same-origin" });
-    const data = await res.json();
-    const positions = data.positions || [];
-    // Auto-save and auto-watch all returned positions
-    for (const p of positions) {
-      const pid = String(p.id), pchain = p.chain || currentChain;
-      if (!_saved.find(s => s.id===pid && s.chain===pchain)) {
-        try {
-          const sr = await fetch("/api/saved-positions", { method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id:pid,chain:pchain}) });
-          if (sr.ok) _saved = await sr.json();
-        } catch(e) {}
-      }
-      const watched = (_alertSettings.watched_positions || []);
-      if (!watched.find(w => w.position_id===pid && w.chain===pchain)) {
-        try {
-          await fetch("/api/alert-settings/watch", { method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({position_id:pid,chain:pchain}) });
-          const ar = await fetch("/api/alert-settings", { credentials:"same-origin" }); if (ar.ok) _alertSettings = await ar.json();
-        } catch(e) {}
-      }
-    }
-    document.getElementById("wallet-input").value = "";
-    await loadPortfolio();
-  } catch(e) { showError("Error: " + e.message); }
-  btn.disabled = false; btn.textContent = "Add";
-}
-document.getElementById("wallet-input").addEventListener("keydown", e => { if (e.key==="Enter") addPosition(); });
-
-// ── History charts (portfolio level) ─────────────────────────────────────────
+// ── Position-specific history charts ─────────────────────────────────────────
 async function loadHistory() {
   try {
-    const res = await fetch(`/api/snapshots?period=${currentPeriod}`, { credentials:"same-origin" });
+    const res = await fetch(`/api/snapshots?period=${currentPeriod}&position_id=${positionId}`, { credentials:"same-origin" });
     const data = await res.json();
     const snapshots = data.snapshots || [];
     const section = document.getElementById("history-section");
     if (snapshots.length < 2) { section.style.display="none"; return; }
     section.style.display = "block";
-    const labels  = snapshots.map(s => new Date(s.ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}));
-    const values  = snapshots.map(s => s.total_value);
-    const fees    = snapshots.map(s => s.total_fees);
-    const aprs    = snapshots.map(s => s.avg_apr);
-    document.getElementById("hist-peak").textContent = "$" + Math.max(...values).toLocaleString("en-US",{maximumFractionDigits:0});
-    document.getElementById("hist-low").textContent  = "$" + Math.min(...values).toLocaleString("en-US",{maximumFractionDigits:0});
+    document.getElementById("history-title").textContent = "📈 POSITION HISTORY";
+    const labels = snapshots.map(s => new Date(s.ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}));
+    const values = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.value:s.total_value; });
+    const fees   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.fees:s.total_fees; });
+    const aprs   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.apr:s.avg_apr; });
+    const inRangeArr = snapshots.map(s => s.position_in_range!=null ? (s.position_in_range?100:0) : null);
+    document.getElementById("hist-peak").textContent = "$"+Math.max(...values.filter(v=>v!=null)).toLocaleString("en-US",{maximumFractionDigits:0});
+    document.getElementById("hist-low").textContent  = "$"+Math.min(...values.filter(v=>v!=null)).toLocaleString("en-US",{maximumFractionDigits:0});
     const validAprs = aprs.filter(a=>a!=null);
-    document.getElementById("hist-avg-apr").textContent = validAprs.length ? "+" + (validAprs.reduce((a,b)=>a+b,0)/validAprs.length).toFixed(1)+"%" : "—";
-    const inRangePcts = snapshots.map(s => { const p=s.positions||[]; return p.length?Math.round(p.filter(x=>x.in_range).length/p.length*100):null; });
-    const avgPct = inRangePcts.filter(v=>v!=null).reduce((a,b,_,arr)=>a+b/arr.length,0);
-    document.getElementById("hist-efficiency").textContent = avgPct ? Math.round(avgPct)+"%" : "—";
-    document.getElementById("hist-efficiency").style.color = avgPct>=80?"var(--green)":avgPct>=50?"var(--amber)":"var(--red)";
+    document.getElementById("hist-avg-apr").textContent = validAprs.length ? "+"+(validAprs.reduce((a,b)=>a+b,0)/validAprs.length).toFixed(1)+"%" : "—";
+    const irPct = inRangeArr.filter(v=>v!=null);
+    const avgIr = irPct.length ? Math.round(irPct.reduce((a,b)=>a+b,0)/irPct.length) : null;
+    document.getElementById("hist-efficiency").textContent = avgIr!=null ? avgIr+"%" : "—";
+    document.getElementById("hist-efficiency").style.color = avgIr>=80?"var(--green)":avgIr>=50?"var(--amber)":"var(--red)";
     if (valueChart) valueChart.destroy();
-    valueChart = new Chart(document.getElementById("value-chart"), { type:"line", data:{ labels, datasets:[
-      {label:"Value",data:values,borderColor:"#4a9eff",backgroundColor:"rgba(74,158,255,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3},
-      {label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[4,2]}
-    ]}, options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Portfolio Value (USD)",color:"#9ca3af",font:{size:11}}}} });
+    valueChart = new Chart(document.getElementById("value-chart"),{ type:"line",data:{labels,datasets:[{label:"Value",data:values,borderColor:"#4a9eff",backgroundColor:"rgba(74,158,255,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3},{label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[4,2]}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Position Value (USD)",color:"#9ca3af",font:{size:11}}}} });
     if (aprChart) aprChart.destroy();
-    aprChart = new Chart(document.getElementById("apr-chart"), { type:"line", data:{ labels, datasets:[{label:"APR %",data:aprs,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3}]}, options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Fee APR (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
+    aprChart = new Chart(document.getElementById("apr-chart"),{ type:"line",data:{labels,datasets:[{label:"APR %",data:aprs,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"APR (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
     if (window.inRangeChart) window.inRangeChart.destroy();
-    window.inRangeChart = new Chart(document.getElementById("inrange-chart"), { type:"line", data:{ labels, datasets:[{label:"In Range %",data:inRangePcts,borderColor:"#2dcd7a",backgroundColor:"rgba(45,205,122,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]}, options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Time In Range (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,min:0,max:100,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
-  } catch(e) { console.error("History load failed:", e); }
+    window.inRangeChart = new Chart(document.getElementById("inrange-chart"),{ type:"line",data:{labels,datasets:[{label:"In Range",data:inRangeArr,borderColor:"#2dcd7a",backgroundColor:"rgba(45,205,122,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.1,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"In Range (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,min:0,max:100,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
+  } catch(e) { console.error("History failed:", e); }
 }
 
-function reloadCurrentPosition() { loadPortfolio(); }
+// ── Range timeline bar ────────────────────────────────────────────────────────
+async function loadRangeStatsAndTimeline() {
+  try {
+    const res = await fetch(`/api/range-stats/${positionId}?chain=${chain}&period=all`, { credentials:"same-origin" });
+    if (!res.ok) return;
+    const data = await res.json();
+    const section = document.getElementById("range-timeline-section");
+    const bar     = document.getElementById("range-bar-timeline");
+    const summary = document.getElementById("tir-summary");
+    const pct     = data.pct_in_range;
+    const timeline = data.timeline || [];
+    const lastSt   = data.last_status;
+    if (!timeline.length && !lastSt) return;
+    section.style.display = "block";
+    const all = pct?.all, d7 = pct?.["7d"];
+    let txt = all!=null ? `${all}% all-time` : "";
+    if (d7!=null) txt += ` · ${d7}% 7d`;
+    summary.textContent = txt;
+    summary.style.color = all>=80?"var(--green)":all>=50?"var(--amber)":"var(--red)";
+    // Render timeline
+    const now = Date.now()/1000;
+    const allTs = timeline.map(e=>e.ts_out).filter(Boolean);
+    const windowStart = Math.min(...(allTs.length?allTs:[now-86400]), now-30*86400);
+    const span = now - windowStart;
+    if (span<=0) return;
+    const segments = [];
+    let cursor = windowStart;
+    const evts = [...timeline].sort((a,b)=>a.ts_out-b.ts_out);
+    for (const evt of evts) {
+      const tsOut = Math.max(evt.ts_out, windowStart);
+      const tsIn  = evt.ts_in || now;
+      if (tsOut > cursor) segments.push({start:cursor,end:tsOut,in_range:true});
+      segments.push({start:tsOut,end:Math.min(tsIn,now),in_range:false});
+      cursor = Math.min(tsIn,now);
+    }
+    if (cursor < now) segments.push({start:cursor,end:now,in_range:lastSt?lastSt.in_range:true});
+    bar.innerHTML = segments.map(seg => {
+      const left  = ((seg.start-windowStart)/span*100).toFixed(2);
+      const width = ((seg.end-seg.start)/span*100).toFixed(2);
+      const color = seg.in_range?"var(--green)":"var(--red)";
+      return `<div style="position:absolute;top:0;left:${left}%;width:${width}%;height:100%;background:${color};opacity:0.75"></div>`;
+    }).join("");
+    const oldestDate = new Date(windowStart*1000);
+    document.getElementById("tir-oldest").textContent = oldestDate.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+  } catch(e) {}
+}
 
 // ── Startup ───────────────────────────────────────────────────────────────────
-loadAlertSettings();
-loadLpEntries();
-loadPortfolio();
+if (!positionId || positionId === "position") {
+  window.location.href = "/";
+} else {
+  loadAlertSettings().then(() => {
+    document.getElementById("watch-current-btn").style.display = "inline-block";
+  });
+  loadLpEntries();
+  loadSaved();
+  loadPosition();
+}
 </script>
 </body>
 </html>

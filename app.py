@@ -915,6 +915,10 @@ CACHE_TTL = 120  # 2 minutes
 def index():
     return app.send_static_file("index.html")
 
+@app.route("/position/<position_id>")
+def position_detail(position_id):
+    return app.send_static_file("position.html")
+
 
 @app.route("/api/positions")
 def get_positions():
