@@ -552,12 +552,19 @@ function renderRangeLog(data) {
 }
 
 
-async function loadRebalances(poolKey) {
+async function loadRebalances(poolKey, nftId) {
   try {
     const res = await fetch("/api/rebalances", { credentials: "same-origin" });
     if (!res.ok) return;
     const data = await res.json();
     if (poolKey) data.pools = data.pools.filter(p => p.pool_key === poolKey);
+    // On detail page filter cycles to only this NFT
+    if (nftId) {
+      data.pools = data.pools.map(p => ({
+        ...p,
+        cycles: p.cycles.filter(c => String(c.nft_id) === String(nftId))
+      })).filter(p => p.cycles.length > 0);
+    }
     renderRebalances(data);
   } catch(e) {}
 }
@@ -729,7 +736,7 @@ async function loadPosition() {
     loadRangeStatsAndTimeline();
     loadRangeEvents(positionId);
     const poolKey = `${chain}:${_pos.pool_address}`;
-    loadRebalances(poolKey);
+    loadRebalances(poolKey, positionId);
   } catch(e) { showError("Network error: " + e.message); setStatus("Error", "warn"); }
 }
 
