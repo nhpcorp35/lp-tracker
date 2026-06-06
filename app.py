@@ -751,10 +751,26 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
     value_usd = amt0 * price0_usd + amt1 * price1_usd
     fees_usd  = fee0 * price0_usd + fee1 * price1_usd
 
+    # ── New-position fee guard ─────────────────────────────────────────────
+    # Subgraph feeGrowthOutside data is stale for the first ~1 hour after mint,
+    # causing phantom fees that equal the pool's entire accumulated fee growth.
+    # Zero out fees for positions under 1 hour old — data stabilises quickly.
+    try:
+        entry_ts = int(pos["transaction"]["timestamp"]) if pos.get("transaction") else None
+        if entry_ts:
+            age_sec = time.time() - entry_ts
+            if age_sec < 3600 and fees_usd > value_usd * 0.01:
+                # More than 1% of position value as fees in under 1 hour = phantom
+                app.logger.info(
+                    "New-position fee guard: pos=%s age=%.0fs fees_usd=%.4f — zeroing",
+                    pos["id"], age_sec, fees_usd
+                )
+                fee0 = fee1 = 0.0
+                fees_usd = 0.0
+    except Exception as _e:
+        app.logger.warning("New-position fee guard error: %s", _e)
+
     # ── Range status ───────────────────────────────────────────────────────
-    # Note: fee sanity check removed — the inner cap in calculate_fee_amounts
-    # already handles phantom subgraph values. The time-based APR cap was
-    # incorrectly zeroing legitimate fees on young high-APR positions.
     in_range = tick_lower <= tick_current < tick_upper
 
     # ── APR calculations ──────────────────────────────────────────────────
