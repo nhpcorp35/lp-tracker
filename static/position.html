@@ -387,8 +387,8 @@ function buildRangeBar(pos) {
 
 
 let _alertSettings = {};
-let _currentPositionId = null;
-let _currentChain = null;
+var _currentPositionId = null;
+var _currentChain = null;
 async function loadAlertSettings() {
   try {
     const res = await fetch("/api/alert-settings", { credentials: "same-origin" });
@@ -606,8 +606,8 @@ function renderRebalances(data) {
 const positionId = window.location.pathname.split("/").pop();
 const chain = new URLSearchParams(window.location.search).get("chain") || "base";
 let currentChain = chain;
-let _currentPositionId = positionId;
-let _currentChain = chain;
+_currentPositionId = positionId;
+_currentChain = chain;
 let _pos = null;
 let _saved = [];
 
