@@ -887,26 +887,37 @@ function hideError() {
 }
 
 function buildClTicks(tickLower, tickUpper, tickSpacing, logL, logU, logMin, total) {
-  // Render individual CL tick lines within the position range.
-  // Uses linear interpolation in tick→log-price space (exact, since log(price) = tick*log(1.0001)+C)
-  // so no decimal adjustment is needed — logL/logU are the anchors from the backend's price_lower/upper.
+  // Render CL tick marks across the full visible bar (not just inside the position).
+  // log(price) is linear in tick, so we interpolate using tickLower/Upper as anchors.
   if (tickLower == null || tickUpper == null || !tickSpacing) return '';
+
+  const tickRange = tickUpper - tickLower;
+
+  // Compute the tick values at the bar edges (logMin / logMax = logMin+total)
+  // t = tickLower + (logP - logL) / (logU - logL) * tickRange
+  const logMax   = logMin + total;
+  const tBarMin  = tickLower + (logMin - logL) / (logU - logL) * tickRange;
+  const tBarMax  = tickLower + (logMax - logL) / (logU - logL) * tickRange;
+
+  // Snap to nearest tickSpacing boundaries
+  const firstTick = Math.ceil(tBarMin  / tickSpacing) * tickSpacing;
+  const lastTick  = Math.floor(tBarMax / tickSpacing) * tickSpacing;
+
+  // Cap density — skip ticks if too many would render
+  const maxTicks = 60;
+  const visibleCount = (lastTick - firstTick) / tickSpacing;
+  const step = Math.max(tickSpacing, Math.ceil(visibleCount / maxTicks) * tickSpacing);
+
   const marks = [];
-  const firstInnerTick = tickLower + tickSpacing;
-  const lastInnerTick  = tickUpper - tickSpacing;
-  const maxTicks = 40;
-  const step = Math.max(tickSpacing, Math.ceil((tickUpper - tickLower) / maxTicks / tickSpacing) * tickSpacing);
-
-  console.log('[CL ticks]', { tickLower, tickUpper, tickSpacing, firstInnerTick, lastInnerTick, step, logL, logU, logMin, total });
-
-  for (let t = firstInnerTick; t <= lastInnerTick; t += step) {
-    const logP = logL + (t - tickLower) / (tickUpper - tickLower) * (logU - logL);
+  for (let t = firstTick; t <= lastTick; t += step) {
+    const logP = logL + (t - tickLower) / tickRange * (logU - logL);
     const pct  = (logP - logMin) / total * 100;
-    console.log('[CL tick]', t, '→ pct', pct.toFixed(1));
     if (pct < 0 || pct > 100) continue;
-    marks.push(`<div style="position:absolute;top:-4px;left:${pct.toFixed(2)}%;width:1px;height:14px;background:rgba(255,255,255,0.3);transform:translateX(-50%);pointer-events:none"></div>`);
+    // Ticks inside the position range are slightly brighter
+    const inside = t > tickLower && t < tickUpper;
+    const alpha  = inside ? 0.35 : 0.18;
+    marks.push(`<div style="position:absolute;top:-4px;left:${pct.toFixed(2)}%;width:1px;height:14px;background:rgba(255,255,255,${alpha});transform:translateX(-50%);pointer-events:none"></div>`);
   }
-  console.log('[CL ticks] generated', marks.length, 'marks');
   return marks.join('');
 }
 
