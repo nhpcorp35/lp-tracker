@@ -751,27 +751,10 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
     value_usd = amt0 * price0_usd + amt1 * price1_usd
     fees_usd  = fee0 * price0_usd + fee1 * price1_usd
 
-    # ── Fee sanity check ───────────────────────────────────────────────────
-    # Stale tick feeGrowthOutside data from the subgraph can cause the
-    # feeGrowthInside delta to be wildly wrong for recently opened positions.
-    # Cap: at 500% APR max, fees accrued = value_usd * 5.0 * age_in_years.
-    # If computed fees exceed this, the subgraph data is bad — zero it out.
-    try:
-        entry_ts = int(pos["transaction"]["timestamp"]) if pos.get("transaction") else None
-        if entry_ts and fees_usd > 0:
-            age_years = max((time.time() - entry_ts) / (365.25 * 24 * 3600), 1e-9)
-            max_fees_usd = value_usd * 5.0 * age_years  # 500% APR ceiling
-            if fees_usd > max_fees_usd:
-                app.logger.warning(
-                    "Fee time-sanity cap: pos=%s fees_usd=%.2f max=%.4f age_years=%.6f — zeroing fees",
-                    pos["id"], fees_usd, max_fees_usd, age_years,
-                )
-                fee0 = fee1 = 0.0
-                fees_usd = 0.0
-    except Exception as _e:
-        app.logger.warning("Fee sanity check error: %s", _e)
-
     # ── Range status ───────────────────────────────────────────────────────
+    # Note: fee sanity check removed — the inner cap in calculate_fee_amounts
+    # already handles phantom subgraph values. The time-based APR cap was
+    # incorrectly zeroing legitimate fees on young high-APR positions.
     in_range = tick_lower <= tick_current < tick_upper
 
     # ── APR calculations ──────────────────────────────────────────────────

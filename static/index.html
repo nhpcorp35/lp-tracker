@@ -904,7 +904,7 @@ function buildClTicks(tickLower, tickUpper, tickSpacing, logL, logU, logMin, tot
     const pct  = (logP - logMin) / total * 100;
     console.log('[CL tick]', t, '→ pct', pct.toFixed(1));
     if (pct < 0 || pct > 100) continue;
-    marks.push(`<div style="position:absolute;top:-2px;left:${pct.toFixed(2)}%;width:1px;height:calc(100% + 4px);background:rgba(255,255,255,0.45);transform:translateX(-50%);pointer-events:none"></div>`);
+    marks.push(`<div style="position:absolute;top:0;left:${pct.toFixed(2)}%;width:1px;height:100%;background:rgba(255,255,255,0.35);transform:translateX(-50%);pointer-events:none"></div>`);
   }
   console.log('[CL ticks] generated', marks.length, 'marks');
   return marks.join('');
