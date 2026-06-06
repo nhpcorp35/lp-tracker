@@ -575,7 +575,12 @@ function renderRebalances(data) {
     const avgDurStr = pool.avg_cycle_duration_sec ? (() => { const d = Math.floor(pool.avg_cycle_duration_sec/86400); return d > 0 ? d+"d avg" : Math.floor(pool.avg_cycle_duration_sec/3600)+"h avg"; })() : "—";
     const cycleRows = (pool.cycles||[]).map(c => {
       const openDate = new Date(c.open_ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"});
-      const closeDate = c.close_ts ? new Date(c.close_ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "<span style='color:var(--green)'>active</span>";
+      const reasonLabel = c.close_reason === "closed" ? " <span style='font-size:9px;color:var(--muted)'>(closed)</span>"
+                        : c.close_reason === "rebalanced" ? " <span style='font-size:9px;color:var(--blue)'>(rebalanced)</span>"
+                        : "";
+      const closeDate = c.close_ts
+        ? new Date(c.close_ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) + reasonLabel
+        : "<span style='color:var(--green)'>active</span>";
       let durStr = "—";
       if (c.duration_sec) { const d=Math.floor(c.duration_sec/86400),h=Math.floor((c.duration_sec%86400)/3600); durStr=d>0?`${d}d ${h}h`:`${h}h`; }
       else if (!c.close_ts) { const age=Math.floor((Date.now()/1000-c.open_ts)/3600),d=Math.floor(age/24); durStr=`<span style="color:var(--green)">${d>0?d+"d":age+"h"} open</span>`; }

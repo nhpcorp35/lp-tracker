@@ -1504,6 +1504,54 @@ def _check_rebalance(pos_id: str, chain: str, p: dict):
     _save_rebalances(data)
 
 
+def _close_open_cycle(pos_id: str, chain: str, ts: int, final_price: float,
+                      final_value: float, reason: str = "closed"):
+    """
+    Close the open rebalance cycle for pos_id with final P&L.
+    reason: "closed" (burned) or "rebalanced" (new NFT opened on same pool).
+    Also appends a closure event to range_events last_status.
+    """
+    data   = _load_rebalances()
+    closed = False
+
+    for pool_key, pd in data["pools"].items():
+        if not pool_key.startswith(chain + ":"):
+            continue
+        cycles = pd.get("cycles", [])
+        if not cycles:
+            continue
+        last = cycles[-1]
+        if last["nft_id"] == pos_id and last["close_ts"] is None:
+            last["close_ts"]       = ts
+            last["close_price"]    = round(final_price, 4)
+            last["value_at_close"] = round(final_value, 2)
+            last["close_reason"]   = reason
+            last["duration_sec"]   = ts - last["open_ts"]
+            open_val  = last.get("value_at_open") or 0
+            fees_col  = last.get("fees_collected_usd") or 0
+            fees_unc  = last.get("fees_usd_uncollected") or 0
+            # Final P&L = (exit value − entry value) + all fees earned
+            last["pnl_usd"] = round((final_value - open_val) + fees_col + fees_unc, 2)
+            closed = True
+            app.logger.info(
+                "Cycle closed (%s): %s on %s — value=%.2f pnl=%.2f",
+                reason, pos_id, pool_key, final_value, last["pnl_usd"]
+            )
+            break
+
+    if closed:
+        _save_rebalances(data)
+
+    # Mark position as closed in range_events last_status
+    re_data = _load_range_events()
+    for key in list(re_data["last_status"].keys()):
+        if key.endswith(":" + pos_id):
+            re_data["last_status"][key]["closed"] = True
+            re_data["last_status"][key]["close_ts"] = ts
+            re_data["last_status"][key]["close_reason"] = reason
+    _save_range_events(re_data)
+
+
 def _new_cycle(pos_id: str, ts: int, p: dict) -> dict:
     return {
         "nft_id":              pos_id,
@@ -1523,6 +1571,7 @@ def _new_cycle(pos_id: str, ts: int, p: dict) -> dict:
         "fees_usd_uncollected": round(p.get("fees_usd") or 0, 4),
         "pnl_usd":             None,
         "duration_sec":        None,
+        "close_reason":        None,
     }
 
 
@@ -1549,6 +1598,22 @@ def _take_snapshot():
                 raw = query_by_id(pos_id, chain)
                 if not raw:
                     continue
+
+                # Detect closed position (zero liquidity)
+                if int(raw.get("liquidity", 1) or 1) == 0:
+                    app.logger.info("Position %s has zero liquidity — marking closed", pos_id)
+                    try:
+                        p_final = enrich_position(raw, chain)
+                        _close_open_cycle(
+                            pos_id, chain, int(time.time()),
+                            final_price = p_final.get("current_price") or 0,
+                            final_value = p_final.get("value_usd") or 0,
+                            reason      = "closed",
+                        )
+                    except Exception as ce:
+                        app.logger.warning("Close cycle error for %s: %s", pos_id, ce)
+                    continue   # skip snapshot — position is dead
+
                 p = enrich_position(raw, chain)
                 value     = p.get("value_usd") or 0
                 fees      = p.get("uncollected_fees_usd") or 0
