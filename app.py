@@ -607,6 +607,24 @@ query GetPositionById($id: ID!) {
 }
 """
 
+# ── Pool ticks query (for liquidity histogram) ────────────────────────────────
+
+POOL_TICKS_QUERY = """
+query GetPoolTicks($pool: String!, $skip: Int!) {
+  ticks(
+    where: { pool: $pool }
+    orderBy: tickIdx
+    orderDirection: asc
+    first: 1000
+    skip: $skip
+  ) {
+    tickIdx
+    liquidityNet
+    liquidityGross
+  }
+}
+"""
+
 
 def query_subgraph(wallet: str, chain: str = "base") -> list:
     """Query The Graph for Uniswap V3 positions owned by a wallet."""
@@ -1155,6 +1173,83 @@ def delete_saved_position(pos_id, chain):
              if not (s["id"] == pos_id and s["chain"] == chain)]
     _save_saved_positions(saved)
     return jsonify(saved)
+
+
+# ── Pool tick liquidity histogram ─────────────────────────────────────────────
+
+@app.route("/api/pool-ticks")
+def get_pool_ticks():
+    """
+    GET /api/pool-ticks?pool=0x...&chain=base-pancake
+    Returns tick liquidity distribution for the pool, suitable for a histogram.
+    Paginates through all initialized ticks (1000 per page).
+    Response: { ticks: [{tickIdx, liquidity}], tick_current, tick_spacing }
+    """
+    pool_address = request.args.get("pool", "").strip().lower()
+    chain        = request.args.get("chain", "base").strip().lower()
+
+    if not pool_address or not pool_address.startswith("0x"):
+        return jsonify({"error": "pool address required"}), 400
+    if chain not in CHAINS:
+        return jsonify({"error": f"unsupported chain: {chain}"}), 400
+
+    # Ticks change slowly — cache for 5 minutes
+    cache_key = f"ticks:{chain}:{pool_address}"
+    cached = _cache.get(cache_key)
+    if cached and time.time() - cached["fetched_at"] < 300:
+        return jsonify(cached["data"])
+
+    cfg = CHAINS[chain]
+    url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {GRAPH_API_KEY}",
+    }
+
+    # Paginate — active pools can have >1000 initialized ticks
+    all_ticks = []
+    skip = 0
+    while True:
+        payload = {
+            "query": POOL_TICKS_QUERY,
+            "variables": {"pool": pool_address, "skip": skip},
+        }
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            if "errors" in data:
+                app.logger.error("Pool ticks subgraph errors: %s", data["errors"])
+                break
+            page = data.get("data", {}).get("ticks", [])
+            if not page:
+                break
+            all_ticks.extend(page)
+            if len(page) < 1000:
+                break
+            skip += 1000
+        except Exception as e:
+            app.logger.error("Pool ticks query failed: %s", e)
+            break
+
+    if not all_ticks:
+        return jsonify({"ticks": [], "error": "no tick data"}), 200
+
+    # Compute running cumulative liquidity via liquidityNet cumsum (ticks already asc)
+    # Starting from MIN_TICK, each initialized tick flips liquidityNet into/out of active L.
+    # The result is the active liquidity in the bucket [tickIdx, nextInitializedTick).
+    cumulative = 0
+    tick_liquidity = []
+    for t in all_ticks:
+        cumulative += int(t["liquidityNet"])
+        tick_liquidity.append({
+            "tickIdx":   int(t["tickIdx"]),
+            "liquidity": cumulative,
+        })
+
+    result = {"ticks": tick_liquidity}
+    _cache[cache_key] = {"fetched_at": time.time(), "data": result}
+    return jsonify(result)
 
 
 # ── Alert settings persistence ────────────────────────────────────────────────

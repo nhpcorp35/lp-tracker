@@ -155,6 +155,13 @@
   .save-pos-btn { background:none;border:1px solid var(--border2);border-radius:6px;color:var(--muted);font-family:var(--mono);font-size:11px;padding:5px 10px;cursor:pointer;transition:all 0.15s; }
   .save-pos-btn:hover { color:var(--amber);border-color:var(--amber); }
   .save-pos-btn.saved { color:var(--amber);border-color:var(--amber);background:rgba(245,166,35,0.08); }
+
+  /* Liquidity histogram */
+  #liq-histogram-section { display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;max-width:900px;margin-left:auto;margin-right:auto; }
+  #liq-histogram-section .hist-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:14px; }
+  #liq-histogram-section .hist-title { font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em; }
+  #liq-histogram-section .hist-meta { font-family:var(--mono);font-size:10px;color:var(--muted); }
+  #liq-chart-wrap { position:relative;height:180px; }
 </style>
 </head>
 <body>
@@ -233,6 +240,16 @@
 
   <div id="position-detail"></div>
 
+  <!-- Liquidity Distribution Histogram -->
+  <div id="liq-histogram-section">
+    <div class="hist-header">
+      <div class="hist-title">📊 POOL LIQUIDITY DISTRIBUTION</div>
+      <div class="hist-meta" id="liq-hist-meta"></div>
+    </div>
+    <div id="liq-chart-wrap">
+      <canvas id="liq-chart"></canvas>
+    </div>
+  </div>
 
   <div id="history-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -737,6 +754,7 @@ async function loadPosition() {
     loadRangeEvents(positionId);
     const poolKey = `${chain}:${_pos.pool_address}`;
     loadRebalances(poolKey, positionId);
+    loadLiquidityHistogram(_pos);
   } catch(e) { showError("Network error: " + e.message); setStatus("Error", "warn"); }
 }
 
@@ -819,6 +837,192 @@ async function loadRangeStatsAndTimeline() {
     const oldestDate = new Date(windowStart*1000);
     document.getElementById("tir-oldest").textContent = oldestDate.toLocaleDateString("en-US",{month:"short",day:"numeric"});
   } catch(e) {}
+}
+
+// ── Liquidity Distribution Histogram ─────────────────────────────────────────
+let _liqChart = null;
+
+async function loadLiquidityHistogram(pos) {
+  const section = document.getElementById("liq-histogram-section");
+  const meta    = document.getElementById("liq-hist-meta");
+  if (!pos || !pos.pool_address) return;
+
+  try {
+    const res = await fetch(
+      `/api/pool-ticks?pool=${encodeURIComponent(pos.pool_address)}&chain=${encodeURIComponent(pos.chain || chain)}`,
+      { credentials: "same-origin" }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const ticks = data.ticks || [];
+    if (ticks.length < 2) return;
+
+    // ── Convert ticks to price buckets ──────────────────────────────────
+    // Each entry from the backend is {tickIdx, liquidity} where liquidity is
+    // the cumulative active L starting at that tick (valid until the next tick).
+    // We bucket these into NUM_BUCKETS bars in log-price space.
+
+    const NUM_BUCKETS = 120;
+    const dec0 = pos.token0.decimals;
+    const dec1 = pos.token1.decimals;
+
+    // Convert tickIdx to human price (token1 per token0) — same as tick_to_price in backend
+    function tickToPrice(t) {
+      return Math.pow(1.0001, t) * Math.pow(10, dec0) / Math.pow(10, dec1);
+    }
+
+    // Determine visible price window: centre on current price, ±60% of range width in log space
+    const priceLower  = pos.price_lower;
+    const priceUpper  = pos.price_upper;
+    const priceCur    = pos.current_price;
+    const logL = Math.log(priceLower);
+    const logU = Math.log(priceUpper);
+    const rangeLogW = logU - logL;
+    const padding   = rangeLogW * 1.5;  // show 1.5× the range width on each side
+    const logMin    = logL - padding;
+    const logMax    = logU + padding;
+    const logSpan   = logMax - logMin;
+    const bucketW   = logSpan / NUM_BUCKETS;
+
+    // Initialise buckets
+    const buckets = new Array(NUM_BUCKETS).fill(0);
+
+    // For each pair of consecutive ticks, the active liquidity is ticks[i].liquidity
+    // and it covers the price range [price(ticks[i].tickIdx), price(ticks[i+1].tickIdx)).
+    // Distribute it proportionally into whichever buckets it overlaps.
+    for (let i = 0; i < ticks.length - 1; i++) {
+      const liq    = ticks[i].liquidity;
+      if (liq <= 0) continue;
+      const pA     = tickToPrice(ticks[i].tickIdx);
+      const pB     = tickToPrice(ticks[i + 1].tickIdx);
+      if (pA <= 0 || pB <= 0) continue;
+      const logA   = Math.log(pA);
+      const logB   = Math.log(pB);
+      // Clamp to visible window
+      const lo     = Math.max(logA, logMin);
+      const hi     = Math.min(logB, logMax);
+      if (hi <= lo) continue;
+      // Which buckets does [lo, hi) span?
+      const bStart = Math.floor((lo - logMin) / bucketW);
+      const bEnd   = Math.min(Math.ceil((hi - logMin) / bucketW), NUM_BUCKETS - 1);
+      const totalW = logB - logA;
+      for (let b = bStart; b <= bEnd; b++) {
+        const bLo   = logMin + b * bucketW;
+        const bHi   = bLo + bucketW;
+        const overlap = Math.min(hi, bHi) - Math.max(lo, bLo);
+        if (overlap > 0) buckets[b] += liq * (overlap / totalW);
+      }
+    }
+
+    // Build labels (mid-price of each bucket)
+    const labels = buckets.map((_, i) => {
+      const logMid = logMin + (i + 0.5) * bucketW;
+      return Math.exp(logMid);
+    });
+
+    // Colour each bar: green if inside position range, blue otherwise
+    const inRangeColor   = "rgba(45,205,122,0.75)";
+    const outRangeColor  = "rgba(74,158,255,0.45)";
+    const colors = labels.map(p => (p >= priceLower && p <= priceUpper) ? inRangeColor : outRangeColor);
+
+    // Normalise for display
+    const maxL = Math.max(...buckets);
+    const normalised = buckets.map(v => maxL > 0 ? v / maxL : 0);
+
+    // ── Current-price annotation line index ──────────────────────────────
+    const curBucket = Math.floor((Math.log(priceCur) - logMin) / bucketW);
+
+    // ── Draw chart ────────────────────────────────────────────────────────
+    if (_liqChart) { _liqChart.destroy(); _liqChart = null; }
+
+    const ctx = document.getElementById("liq-chart").getContext("2d");
+
+    // Vertical line plugin for current price
+    const currentPricePlugin = {
+      id: "currentPriceLine",
+      afterDraw(chart) {
+        const { ctx: c, chartArea, scales } = chart;
+        const x = scales.x.getPixelForValue(curBucket);
+        if (x < chartArea.left || x > chartArea.right) return;
+        c.save();
+        c.beginPath();
+        c.moveTo(x, chartArea.top);
+        c.lineTo(x, chartArea.bottom);
+        c.strokeStyle = "#4a9eff";
+        c.lineWidth = 1.5;
+        c.setLineDash([4, 3]);
+        c.stroke();
+        // Label
+        c.fillStyle = "#4a9eff";
+        c.font = "9px 'IBM Plex Mono', monospace";
+        c.textAlign = "center";
+        c.fillText("▼ " + fmtPrice(priceCur), x, chartArea.top + 10);
+        c.restore();
+      }
+    };
+
+    _liqChart = new Chart(ctx, {
+      type: "bar",
+      plugins: [currentPricePlugin],
+      data: {
+        labels: labels.map((_, i) => i),
+        datasets: [{
+          data: normalised,
+          backgroundColor: colors,
+          borderWidth: 0,
+          barPercentage: 1.0,
+          categoryPercentage: 1.0,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => fmtPrice(labels[items[0].dataIndex]),
+              label: (item) => `Liquidity: ${(item.raw * 100).toFixed(1)}% of peak`,
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              maxTicksLimit: 7,
+              color: "#6b7280",
+              font: { size: 9, family: "'IBM Plex Mono', monospace" },
+              callback: (val) => {
+                // Show price label for ~7 evenly spaced ticks
+                return fmtPrice(labels[val]);
+              }
+            },
+            grid: { color: "#1d2330" }
+          },
+          y: {
+            display: false,
+            min: 0,
+            max: 1,
+          }
+        }
+      }
+    });
+
+    // ── Range band annotation (drawn as background region) ────────────────
+    // We add a shaded background for the position's price range via a custom plugin
+    // already handled by bar colours above. Show meta info.
+    const inRangePct = (buckets.slice(
+      Math.max(0, Math.floor((Math.log(priceLower) - logMin) / bucketW)),
+      Math.min(NUM_BUCKETS, Math.ceil((Math.log(priceUpper) - logMin) / bucketW))
+    ).reduce((a, b) => a + b, 0) / buckets.reduce((a, b) => a + b, 0) * 100).toFixed(0);
+
+    meta.textContent = `${ticks.length} ticks · ${inRangePct}% of pool liquidity in your range`;
+    section.style.display = "block";
+
+  } catch(e) {
+    console.error("Histogram failed:", e);
+  }
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
