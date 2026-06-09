@@ -1620,6 +1620,8 @@ def _take_snapshot():
                     app.logger.info("Position %s has zero liquidity — marking closed", pos_id)
                     try:
                         p_final = enrich_position(raw, chain)
+                        # Check rebalance first so new NFT on same pool is linked correctly
+                        _check_rebalance(pos_id, chain, p_final)
                         _close_open_cycle(
                             pos_id, chain, int(time.time()),
                             final_price = p_final.get("current_price") or 0,
