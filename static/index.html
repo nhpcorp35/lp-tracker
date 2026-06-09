@@ -690,7 +690,8 @@ async function loadPortfolio() {
 
   _allPositions = results
     .filter(r => r.status==="fulfilled" && r.value)
-    .map(r => r.value);
+    .map(r => r.value)
+    .filter(p => parseInt(p.liquidity || "0") > 0);
 
   await loadLpEntries();
   renderSummary(_allPositions);
