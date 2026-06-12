@@ -551,6 +551,7 @@ query GetPositions($owner: String!) {
         date
         volumeUSD
         feesUSD
+        tvlUSD
       }
     }
     transaction { timestamp }
@@ -600,6 +601,7 @@ query GetPositionById($id: ID!) {
         date
         volumeUSD
         feesUSD
+        tvlUSD
       }
     }
     transaction { timestamp }
