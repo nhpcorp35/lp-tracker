@@ -1,3 +1,8 @@
+## 2026-06-12
+- Fixed Aerodrome Slipstream pool screener: replaced GeckoTerminal API (returns 403 from Railway datacenter IPs) with The Graph subgraph GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM ("Aerodrome Base Full"), using same gateway.thegraph.com + GRAPH_API_KEY pattern as other chains
+- Updated fetch_aerodrome_pools to query clPools entity with poolDayData, mapping tickSpacing to fee tier (1→0.01%, 50→0.05%, 100→0.3%, 200→1%)
+- Updated screener subtitle to mention Aerodrome Slipstream (Base)
+
 ## 2026-06-12 (session 2)
 
 ### New features
