@@ -1150,66 +1150,91 @@ def screener_page():
 
 
 
+AERODROME_SUBGRAPH_ID = "GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM"
+
 def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
     """
-    Fetch top Aerodrome Slipstream CL pools from GeckoTerminal API.
+    Fetch top Aerodrome Slipstream CL pools from The Graph subgraph.
     Returns list of pool dicts in same format as subgraph screener results.
     """
     try:
+        url = f"{GRAPH_BASE}/{AERODROME_SUBGRAPH_ID}"
+        query = """
+        {
+          clPools(
+            first: 100,
+            orderBy: volumeUSD,
+            orderDirection: desc,
+            where: { totalValueLockedUSD_gte: "%(min_tvl)s", volumeUSD_gt: "0" }
+          ) {
+            id
+            tickSpacing
+            totalValueLockedUSD
+            volumeUSD
+            token0 { symbol }
+            token1 { symbol }
+            poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+              date
+              volumeUSD
+              feesUSD
+              tvlUSD
+            }
+          }
+        }
+        """ % {"min_tvl": min_tvl}
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GRAPH_API_KEY}",
+        }
+        r = requests.post(url, json={"query": query}, headers=headers, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        if data.get("errors"):
+            app.logger.warning("Aerodrome subgraph errors: %s", data["errors"])
+        pools = data.get("data", {}).get("clPools", [])
+
+        # tickSpacing → fee tier decimal mapping for Aerodrome Slipstream
+        TICK_FEE = {1: 0.0001, 50: 0.0005, 100: 0.003, 200: 0.01}
+
         results = []
-        # Fetch top pools by volume, paginate up to 3 pages
-        for page in range(1, 4):
-            url = (
-                f"https://api.geckoterminal.com/api/v2/networks/base/dexes/"
-                f"aerodrome-slipstream/pools?page={page}&sort=h24_volume_usd_desc"
-            )
-            r = requests.get(url, headers={
-                "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            }, timeout=10)
-            if r.status_code != 200:
-                app.logger.warning("Aerodrome GeckoTerminal fetch page %s: status=%s body=%s", page, r.status_code, r.text[:200])
-                break
-            data = r.json()
-            pools = data.get("data", [])
-            if not pools:
-                break
-            for p in pools:
-                attrs = p.get("attributes", {})
-                name = attrs.get("name", "")
-                tvl = float(attrs.get("reserve_in_usd") or 0)
-                if tvl < min_tvl:
-                    continue
-                vol_24h = float((attrs.get("volume_usd") or {}).get("h24") or 0)
-                # GeckoTerminal pool_fee is a string like "0.0005"
-                fee_raw = attrs.get("pool_fee") or "0"
-                try:
-                    fee_decimal = float(fee_raw)
-                except:
-                    fee_decimal = 0.0003
-                # APR = (24h vol * fee / TVL) * 365
-                apr = (vol_24h * fee_decimal / tvl) * 365 * 100 if tvl > 0 else 0
-                if apr < min_apr:
-                    continue
-                # Parse token names from pool name e.g. "WETH / USDC"
-                parts = name.split(" / ") if " / " in name else name.split("/")
-                token0 = parts[0].strip() if parts else "?"
-                token1 = parts[1].strip() if len(parts) > 1 else "?"
-                pool_id = p.get("id", "").split("_")[-1]  # "base_0xabc..." -> "0xabc..."
-                results.append({
-                    "chain": "aerodrome",
-                    "chain_name": "Aerodrome (Base)",
-                    "pool_id": pool_id,
-                    "token0": token0,
-                    "token1": token1,
-                    "fee_tier": int(fee_decimal * 1_000_000),
-                    "fee_pct": round(fee_decimal * 100, 4),
-                    "tvl_usd": round(tvl, 0),
-                    "avg_daily_vol_usd": round(vol_24h, 0),
-                    "vol_tvl_ratio": round(vol_24h / tvl, 3) if tvl > 0 else 0,
-                    "apr": round(apr, 1),
-                    "days_data": 1,
-                })
+        for p in pools:
+            tvl = float(p.get("totalValueLockedUSD") or 0)
+            if tvl < min_tvl:
+                continue
+            tick_spacing = int(p.get("tickSpacing", 100))
+            fee_decimal = TICK_FEE.get(tick_spacing, tick_spacing / 1_000_000)
+            day_data = p.get("poolDayData", [])
+            daily_aprs = []
+            for d in day_data:
+                d_vol = float(d.get("volumeUSD", 0))
+                d_tvl = float(d.get("tvlUSD") or tvl)
+                if d_vol > 0 and d_tvl > 0:
+                    daily_aprs.append((d_vol * fee_decimal / d_tvl) * 365 * 100)
+            if not daily_aprs:
+                continue
+            apr = sum(daily_aprs) / len(daily_aprs)
+            if apr < min_apr:
+                continue
+            avg_vol = sum(float(d.get("volumeUSD", 0)) for d in day_data) / max(len(day_data), 1)
+            vol_tvl = avg_vol / tvl if tvl > 0 else 0
+            token0 = p.get("token0", {}).get("symbol", "?")
+            token1 = p.get("token1", {}).get("symbol", "?")
+            results.append({
+                "chain": "aerodrome",
+                "chain_name": "Aerodrome (Base)",
+                "pool_id": p["id"],
+                "token0": token0,
+                "token1": token1,
+                "fee_tier": int(fee_decimal * 1_000_000),
+                "fee_pct": round(fee_decimal * 100, 4),
+                "tvl_usd": round(tvl, 0),
+                "avg_daily_vol_usd": round(avg_vol, 0),
+                "vol_tvl_ratio": round(vol_tvl, 3),
+                "apr": round(apr, 1),
+                "days_data": len(day_data),
+            })
+        app.logger.info("Aerodrome subgraph: got %s qualifying pools", len(results))
         return results
     except Exception as e:
         app.logger.warning("Aerodrome screener fetch failed: %s", e)
