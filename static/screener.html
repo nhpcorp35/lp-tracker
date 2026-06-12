@@ -101,11 +101,12 @@
     <div class="filter-group">
       <div class="filter-label">Chains</div>
       <div class="chain-filter">
-        <button class="cbtn active" id="cb-base" onclick="toggleChain('base')">Base</button>
-        <button class="cbtn active" id="cb-base-pancake" onclick="toggleChain('base-pancake')">Cake</button>
-        <button class="cbtn active" id="cb-aerodrome" onclick="toggleChain('aerodrome')">Aero</button>
-        <button class="cbtn active" id="cb-ethereum" onclick="toggleChain('ethereum')">ETH</button>
-        <button class="cbtn active" id="cb-arbitrum" onclick="toggleChain('arbitrum')">ARB</button>
+        <button class="cbtn active" id="cb-all" onclick="selectChain('all')">All</button>
+        <button class="cbtn" id="cb-base" onclick="selectChain('base')">Base</button>
+        <button class="cbtn" id="cb-base-pancake" onclick="selectChain('base-pancake')">Cake</button>
+        <button class="cbtn" id="cb-aerodrome" onclick="selectChain('aerodrome')">Aero</button>
+        <button class="cbtn" id="cb-ethereum" onclick="selectChain('ethereum')">ETH</button>
+        <button class="cbtn" id="cb-arbitrum" onclick="selectChain('arbitrum')">ARB</button>
       </div>
     </div>
     <button class="scan-btn" id="scan-btn" onclick="scan()">🔍 Scan</button>
@@ -137,7 +138,7 @@
 let _pools = [];
 let _sortKey = 'apr';
 let _sortDir = -1;
-let _activeChains = new Set(['base', 'base-pancake', 'aerodrome', 'ethereum', 'arbitrum']);
+let _selectedChain = 'all'; // 'all' or a specific chain key
 
 function fmtUsd(v) {
   if (v == null) return '—';
@@ -147,10 +148,10 @@ function fmtUsd(v) {
   return '$' + v.toFixed(0);
 }
 
-function toggleChain(c) {
-  if (_activeChains.has(c)) _activeChains.delete(c);
-  else _activeChains.add(c);
-  document.getElementById('cb-' + c).classList.toggle('active', _activeChains.has(c));
+function selectChain(c) {
+  _selectedChain = c;
+  document.querySelectorAll('.cbtn').forEach(b => b.classList.remove('active'));
+  document.getElementById('cb-' + c).classList.add('active');
   renderTable();
 }
 
@@ -164,7 +165,7 @@ function sortBy(key) {
 }
 
 function renderTable() {
-  const filtered = _pools.filter(p => _activeChains.has(p.chain));
+  const filtered = _selectedChain === 'all' ? _pools : _pools.filter(p => p.chain === _selectedChain);
   filtered.sort((a, b) => {
     const av = a[_sortKey] ?? '', bv = b[_sortKey] ?? '';
     return typeof av === 'number' ? (av - bv) * _sortDir : String(av).localeCompare(String(bv)) * _sortDir;
