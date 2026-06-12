@@ -1146,9 +1146,7 @@ def get_chains():
 
 @app.route("/screener")
 def screener_page():
-    response = send_from_directory("static", "screener.html")
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    return response
+    return app.send_static_file("screener.html")
 
 
 @app.route("/api/screener")
