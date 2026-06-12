@@ -1163,9 +1163,12 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
                 f"https://api.geckoterminal.com/api/v2/networks/base/dexes/"
                 f"aerodrome-slipstream/pools?page={page}&sort=h24_volume_usd_desc"
             )
-            r = requests.get(url, headers={"Accept": "application/json"}, timeout=10)
+            r = requests.get(url, headers={
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            }, timeout=10)
             if r.status_code != 200:
-                app.logger.warning("Aerodrome GeckoTerminal fetch page %s: %s", page, r.status_code)
+                app.logger.warning("Aerodrome GeckoTerminal fetch page %s: status=%s body=%s", page, r.status_code, r.text[:200])
                 break
             data = r.json()
             pools = data.get("data", [])
