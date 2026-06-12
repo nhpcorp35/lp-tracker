@@ -1143,36 +1143,6 @@ def get_chains():
 
 
 
-@app.route("/api/debug/pool/<int:position_id>")
-def debug_pool(position_id):
-    chain = request.args.get("chain", "base")
-    try:
-        raw = query_by_id(str(position_id), chain)
-        if not raw:
-            return jsonify({"error": "position not found"}), 404
-        pool = raw.get("pool", {})
-        fee_tier = int(pool.get("feeTier", 3000))
-        tvl = float(pool.get("totalValueLockedUSD") or 0)
-        day_data = pool.get("poolDayData", [])
-        fee_tier_decimal = fee_tier / 1_000_000
-        daily_aprs = []
-        for d in day_data:
-            d_vol = float(d.get("volumeUSD", 0))
-            if d_vol > 0 and tvl > 0:
-                daily_aprs.append((d_vol * fee_tier_decimal / tvl) * 365 * 100)
-        return jsonify({
-            "pool_id": pool.get("id"),
-            "fee_tier": fee_tier,
-            "fee_tier_decimal": fee_tier_decimal,
-            "tvl_usd": tvl,
-            "day_data": day_data,
-            "computed_daily_aprs": daily_aprs,
-            "advertised_apr": round(sum(daily_aprs)/len(daily_aprs), 2) if daily_aprs else None,
-        })
-    except Exception as e:
-        import traceback
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
-
 @app.route("/api/saved-positions", methods=["GET"])
 def get_saved_positions():
     return jsonify(_load_saved_positions())
