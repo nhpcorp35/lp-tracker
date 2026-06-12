@@ -166,11 +166,8 @@ function sortBy(key) {
 }
 
 function renderTable() {
-  const minTvl = parseFloat(document.getElementById('min-tvl').value) || 0;
-  const minApr = parseFloat(document.getElementById('min-apr').value) || 0;
   const filtered = _pools
-    .filter(p => _selectedChain === 'all' || p.chain === _selectedChain)
-    .filter(p => p.tvl_usd >= minTvl && p.apr >= minApr);
+    .filter(p => _selectedChain === 'all' || p.chain === _selectedChain);
   filtered.sort((a, b) => {
     const av = a[_sortKey] ?? '', bv = b[_sortKey] ?? '';
     return typeof av === 'number' ? (av - bv) * _sortDir : String(av).localeCompare(String(bv)) * _sortDir;
