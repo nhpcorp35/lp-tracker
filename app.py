@@ -1149,6 +1149,69 @@ def screener_page():
     return app.send_static_file("screener.html")
 
 
+
+def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
+    """
+    Fetch top Aerodrome Slipstream CL pools from GeckoTerminal API.
+    Returns list of pool dicts in same format as subgraph screener results.
+    """
+    try:
+        results = []
+        # Fetch top pools by volume, paginate up to 3 pages
+        for page in range(1, 4):
+            url = (
+                f"https://api.geckoterminal.com/api/v2/networks/base/dexes/"
+                f"aerodrome-slipstream/pools?page={page}&sort=h24_volume_usd_desc"
+            )
+            r = requests.get(url, headers={"Accept": "application/json"}, timeout=10)
+            if r.status_code != 200:
+                app.logger.warning("Aerodrome GeckoTerminal fetch page %s: %s", page, r.status_code)
+                break
+            data = r.json()
+            pools = data.get("data", [])
+            if not pools:
+                break
+            for p in pools:
+                attrs = p.get("attributes", {})
+                name = attrs.get("name", "")
+                tvl = float(attrs.get("reserve_in_usd") or 0)
+                if tvl < min_tvl:
+                    continue
+                vol_24h = float((attrs.get("volume_usd") or {}).get("h24") or 0)
+                # GeckoTerminal pool_fee is a string like "0.0005"
+                fee_raw = attrs.get("pool_fee") or "0"
+                try:
+                    fee_decimal = float(fee_raw)
+                except:
+                    fee_decimal = 0.0003
+                # APR = (24h vol * fee / TVL) * 365
+                apr = (vol_24h * fee_decimal / tvl) * 365 * 100 if tvl > 0 else 0
+                if apr < min_apr:
+                    continue
+                # Parse token names from pool name e.g. "WETH / USDC"
+                parts = name.split(" / ") if " / " in name else name.split("/")
+                token0 = parts[0].strip() if parts else "?"
+                token1 = parts[1].strip() if len(parts) > 1 else "?"
+                pool_id = p.get("id", "").split("_")[-1]  # "base_0xabc..." -> "0xabc..."
+                results.append({
+                    "chain": "aerodrome",
+                    "chain_name": "Aerodrome (Base)",
+                    "pool_id": pool_id,
+                    "token0": token0,
+                    "token1": token1,
+                    "fee_tier": int(fee_decimal * 1_000_000),
+                    "fee_pct": round(fee_decimal * 100, 4),
+                    "tvl_usd": round(tvl, 0),
+                    "avg_daily_vol_usd": round(vol_24h, 0),
+                    "vol_tvl_ratio": round(vol_24h / tvl, 3) if tvl > 0 else 0,
+                    "apr": round(apr, 1),
+                    "days_data": 1,
+                })
+        return results
+    except Exception as e:
+        app.logger.warning("Aerodrome screener fetch failed: %s", e)
+        return []
+
 @app.route("/api/screener")
 def api_screener():
     """
@@ -1242,6 +1305,14 @@ def api_screener():
         futures = {executor.submit(fetch_chain, k, v): k for k, v in CHAINS.items()}
         for future in as_completed(futures):
             results.extend(future.result())
+
+    # Add Aerodrome Slipstream pools from GeckoTerminal
+    try:
+        aero_pools = fetch_aerodrome_pools(min_tvl=min_tvl, min_apr=min_apr)
+        results.extend(aero_pools)
+        app.logger.info("Aerodrome screener: got %s pools", len(aero_pools))
+    except Exception as e:
+        app.logger.warning("Aerodrome screener failed: %s", e)
 
     results.sort(key=lambda x: x["apr"], reverse=True)
     return jsonify({"pools": results[:limit], "total": len(results)})
