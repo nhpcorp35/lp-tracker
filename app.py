@@ -1197,6 +1197,7 @@ def api_screener():
             })
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
+            app.logger.info("Screener %s: raw keys=%s errors=%s pool_count=%s", chain_key, list(data.keys()), data.get("errors"), len(data.get("data", {}).get("pools", [])))
             pools = data.get("data", {}).get("pools", [])
             chain_results = []
             for p in pools:
