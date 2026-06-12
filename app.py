@@ -784,9 +784,17 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
             total_fees_7d = sum(float(d.get("feesUSD", 0)) for d in day_data)
             avg_daily_fees = total_fees_7d / max(len(day_data), 1)
 
-            # Advertised APR: pool-level (what Uniswap/PancakeSwap UI shows)
-            # = annualized pool fees / pool TVL
-            if pool_tvl > 0:
+            # Advertised APR: match Uniswap's method — average each day's
+            # (feesUSD / tvlUSD) to avoid TVL mismatch across days
+            daily_aprs = []
+            for d in day_data:
+                d_fees = float(d.get("feesUSD", 0))
+                d_tvl  = float(d.get("tvlUSD") or d.get("totalValueLockedUSD") or 0)
+                if d_tvl > 0 and d_fees > 0:
+                    daily_aprs.append((d_fees / d_tvl) * 365 * 100)
+            if daily_aprs:
+                advertised_apr = sum(daily_aprs) / len(daily_aprs)
+            elif pool_tvl > 0:
                 advertised_apr = (avg_daily_fees * 365 / pool_tvl) * 100
 
             # Position-specific APR: uses liquidity share for accuracy
