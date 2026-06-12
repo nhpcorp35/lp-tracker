@@ -1190,14 +1190,14 @@ def api_screener():
     def fetch_chain(chain_key, cfg):
         try:
             url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
-            payload = json.dumps({"query": query}).encode()
-            req = urllib_req.Request(url, data=payload, headers={
+            req_headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {GRAPH_API_KEY}",
-            })
-            with urllib_req.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode())
-            app.logger.info("Screener %s: raw keys=%s errors=%s pool_count=%s", chain_key, list(data.keys()), data.get("errors"), len(data.get("data", {}).get("pools", [])))
+            }
+            r = requests.post(url, json={"query": query}, headers=req_headers, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            app.logger.info("Screener %s: errors=%s pool_count=%s", chain_key, data.get("errors"), len(data.get("data", {}).get("pools", [])))
             pools = data.get("data", {}).get("pools", [])
             chain_results = []
             for p in pools:
@@ -1239,7 +1239,6 @@ def api_screener():
             app.logger.warning("Screener fetch failed for %s: %s", chain_key, e)
             return []
 
-    import urllib.request as urllib_req
     from concurrent.futures import ThreadPoolExecutor, as_completed
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {executor.submit(fetch_chain, k, v): k for k, v in CHAINS.items()}
