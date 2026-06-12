@@ -61,6 +61,8 @@
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   .loading-pulse { animation: pulse 1.4s ease-in-out infinite; }
   .range-bar { height: 6px; background: var(--border); border-radius: 3px; position: relative; overflow: visible; }
+  .range-bar-wrap { display: inline-block; min-width: 100px; width: 100%; }
+  .range-price-labels { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; color: var(--muted); margin-top: 3px; }
   .range-fill { position: absolute; top: 0; height: 100%; border-radius: 3px; background: var(--green); opacity: 0.4; }
   .range-fill.out { background: var(--red); }
   .range-tick { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--blue); border-radius: 1px; transform: translateX(-50%); }
@@ -576,6 +578,13 @@ let _saved = [];
 let _allPositions = [];
 
 // ── Mini range bar for table ─────────────────────────────────────────────────
+function fmtPrice(p) {
+  if (p == null) return "—";
+  if (p >= 1000) return "$" + p.toLocaleString("en-US", {maximumFractionDigits: 0});
+  if (p >= 1)    return "$" + p.toFixed(2);
+  if (p >= 0.01) return "$" + p.toFixed(4);
+  return "$" + p.toPrecision(4);
+}
 function buildMiniBar(pos) {
   if (!pos.price_lower || !pos.price_upper || !pos.current_price) return "<div class='mini-bar'></div>";
   const lower = pos.price_lower, upper = pos.price_upper, current = pos.current_price;
@@ -585,9 +594,15 @@ function buildMiniBar(pos) {
   const fillLeft  = ((logL - logMin) / total * 100).toFixed(1);
   const fillWidth = ((logU - logL) / total * 100).toFixed(1);
   const tickPct   = ((logC - logMin) / total * 100).toFixed(1);
-  return `<div class="mini-bar" style="min-width:100px">
-    <div class="mini-fill ${pos.in_range ? "" : "out"}" style="left:${fillLeft}%;width:${fillWidth}%"></div>
-    <div class="mini-tick" style="left:${tickPct}%"></div>
+  return `<div class="range-bar-wrap">
+    <div class="mini-bar" style="min-width:100px">
+      <div class="mini-fill ${pos.in_range ? "" : "out"}" style="left:${fillLeft}%;width:${fillWidth}%"></div>
+      <div class="mini-tick" style="left:${tickPct}%"></div>
+    </div>
+    <div class="range-price-labels">
+      <span>${fmtPrice(lower)}</span>
+      <span>${fmtPrice(upper)}</span>
+    </div>
   </div>`;
 }
 
