@@ -244,7 +244,7 @@
       <div class="summary-stat"><div class="summary-label">Uncollected Fees</div><div class="summary-value" id="s-fees">—</div><div class="summary-sub" id="s-fees-sub">uncollected</div></div>
       <div class="summary-stat"><div class="summary-label">In Range</div><div class="summary-value" id="s-in-range">—</div><div class="summary-sub" id="s-range-sub">—</div></div>
       <div class="summary-stat"><div class="summary-label">Total P/L</div><div class="summary-value" id="s-pnl">—</div><div class="summary-sub" id="s-pnl-sub">—</div></div>
-      <div class="summary-stat"><div class="summary-label">Avg APR (est.)</div><div class="summary-value" id="s-apr">—</div><div class="summary-sub">position-weighted</div></div>
+      <div class="summary-stat"><div class="summary-label">Avg APR (est.)</div><div class="summary-value" id="s-apr">—</div><div class="summary-sub">pool 7d avg</div></div>
     </div>
   </div>
 
@@ -254,7 +254,7 @@
       <thead>
         <tr>
           <th>Pair</th><th>Status</th><th>Value</th><th>Fees</th>
-          <th>Your APR</th><th>P&L</th><th>Range</th><th>Age</th><th></th>
+          <th>Pool APR</th><th>P&L</th><th>Range</th><th>Age</th><th></th>
         </tr>
       </thead>
       <tbody id="portfolio-tbody"></tbody>
@@ -692,8 +692,8 @@ function renderSummary(positions) {
   const totalPnl   = positions.reduce((s,p) => s + (p.pnl_usd||0), 0);
   const hasPnl     = positions.some(p => p.pnl_usd != null);
   const totalDep   = positions.reduce((s,p) => s + (p.deposit_usd||0), 0);
-  const aprs       = positions.filter(p => p.apr_estimate != null);
-  const avgApr     = aprs.length ? aprs.reduce((s,p)=>s+p.apr_estimate*(p.value_usd||0),0)/aprs.reduce((s,p)=>s+(p.value_usd||0),0) : null;
+  const aprs       = positions.filter(p => (p.advertised_apr ?? p.apr_estimate) != null);
+  const avgApr     = aprs.length ? aprs.reduce((s,p)=>s+(p.advertised_apr??p.apr_estimate)*(p.value_usd||0),0)/aprs.reduce((s,p)=>s+(p.value_usd||0),0) : null;
   document.getElementById("s-total-value").textContent = fmtUsd(totalValue);
   document.getElementById("s-positions").textContent   = `${positions.length} position${positions.length!==1?"s":""}`;
   document.getElementById("s-fees").textContent        = fmtUsd(totalFees);
