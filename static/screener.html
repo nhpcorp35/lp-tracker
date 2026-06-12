@@ -175,8 +175,8 @@ function renderTable() {
     return;
   }
 
-  const chainLabels = { 'base': 'Base Uni', 'base-pancake': 'Base Cake', 'ethereum': 'Ethereum', 'arbitrum': 'Arbitrum' };
-  const chainBadge  = { 'base': 'chain-base', 'base-pancake': 'chain-base-pancake', 'ethereum': 'chain-ethereum', 'arbitrum': 'chain-arbitrum' };
+  const chainLabels = { 'base': 'Base Uni', 'base-pancake': 'Base Cake', 'aerodrome': 'Aerodrome', 'ethereum': 'Ethereum', 'arbitrum': 'Arbitrum' };
+  const chainBadge  = { 'base': 'chain-base', 'base-pancake': 'chain-base-pancake', 'aerodrome': 'chain-aerodrome', 'ethereum': 'chain-ethereum', 'arbitrum': 'chain-arbitrum' };
 
   document.getElementById('pool-tbody').innerHTML = filtered.map(p => {
     const aprClass = p.apr >= 80 ? 'apr-high' : p.apr >= 40 ? 'apr-mid' : 'apr-low';
