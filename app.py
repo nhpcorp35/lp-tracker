@@ -1143,6 +1143,111 @@ def get_chains():
 
 
 
+
+@app.route("/screener")
+def screener_page():
+    response = send_from_directory("static", "screener.html")
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
+
+
+@app.route("/api/screener")
+def api_screener():
+    """
+    Query all chains for top pools by vol/TVL ratio.
+    Returns pools sorted by estimated APR descending.
+    """
+    min_tvl    = float(request.args.get("min_tvl", 1_000_000))
+    min_apr    = float(request.args.get("min_apr", 20))
+    limit      = int(request.args.get("limit", 50))
+
+    query = """
+    {
+      pools(
+        first: 100,
+        orderBy: volumeUSD,
+        orderDirection: desc,
+        where: { totalValueLockedUSD_gte: "%(min_tvl)s", volumeUSD_gt: "0" }
+      ) {
+        id
+        feeTier
+        totalValueLockedUSD
+        volumeUSD
+        token0 { symbol }
+        token1 { symbol }
+        poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+          date
+          volumeUSD
+          feesUSD
+          tvlUSD
+        }
+      }
+    }
+    """ % {"min_tvl": min_tvl}
+
+    results = []
+
+    def fetch_chain(chain_key, cfg):
+        try:
+            url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
+            payload = json.dumps({"query": query}).encode()
+            req = urllib.request.Request(url, data=payload, headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {GRAPH_API_KEY}",
+            })
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+            pools = data.get("data", {}).get("pools", [])
+            chain_results = []
+            for p in pools:
+                fee_tier = int(p.get("feeTier", 3000))
+                tvl = float(p.get("totalValueLockedUSD") or 0)
+                if tvl < min_tvl:
+                    continue
+                day_data = p.get("poolDayData", [])
+                fee_tier_decimal = fee_tier / 1_000_000
+                daily_aprs = []
+                for d in day_data:
+                    d_vol = float(d.get("volumeUSD", 0))
+                    d_tvl = float(d.get("tvlUSD") or tvl)
+                    if d_vol > 0 and d_tvl > 0:
+                        daily_aprs.append((d_vol * fee_tier_decimal / d_tvl) * 365 * 100)
+                if not daily_aprs:
+                    continue
+                apr = sum(daily_aprs) / len(daily_aprs)
+                if apr < min_apr:
+                    continue
+                avg_vol = sum(float(d.get("volumeUSD", 0)) for d in day_data) / max(len(day_data), 1)
+                vol_tvl = avg_vol / tvl if tvl > 0 else 0
+                chain_results.append({
+                    "chain": chain_key,
+                    "chain_name": cfg["name"],
+                    "pool_id": p["id"],
+                    "token0": p["token0"]["symbol"],
+                    "token1": p["token1"]["symbol"],
+                    "fee_tier": fee_tier,
+                    "fee_pct": round(fee_tier / 10000, 4),
+                    "tvl_usd": round(tvl, 0),
+                    "avg_daily_vol_usd": round(avg_vol, 0),
+                    "vol_tvl_ratio": round(vol_tvl, 3),
+                    "apr": round(apr, 1),
+                    "days_data": len(day_data),
+                })
+            return chain_results
+        except Exception as e:
+            app.logger.warning("Screener fetch failed for %s: %s", chain_key, e)
+            return []
+
+    import urllib.request as _ur
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(fetch_chain, k, v): k for k, v in CHAINS.items()}
+        for future in as_completed(futures):
+            results.extend(future.result())
+
+    results.sort(key=lambda x: x["apr"], reverse=True)
+    return jsonify({"pools": results[:limit], "total": len(results)})
+
 @app.route("/api/saved-positions", methods=["GET"])
 def get_saved_positions():
     return jsonify(_load_saved_positions())
