@@ -1,3 +1,28 @@
+## 2026-06-12 (session 2)
+
+### New features
+- **Pool Screener** (`/screener`) — scans Uniswap V3 subgraphs across Base (Uni + Cake), Ethereum, and Arbitrum for top pools by APR. Shows pair, chain, APR (7d avg), TVL, avg daily volume, vol/TVL ratio, and a direct link to view the pool. Filters: min TVL, min APR. Chain filter is single-select (All/Base/Cake/Aero/ETH/ARB).
+- **Aerodrome Slipstream pools** added to screener via GeckoTerminal API (purple badge).
+- **Screener link** added to main page header.
+
+### APR fix
+- Switched "Your APR" column to "Pool APR" using `advertised_apr` — pool-level 7d avg (volume × fee tier / TVL × 365), matching Uniswap's methodology. Confirmed accurate after debug — WETH/USDC 0.3% Base pool genuinely running at ~104% APR due to elevated ETH volatility.
+- Added `tvlUSD` to `poolDayData` subgraph query.
+
+### Bug fixes
+- PancakeSwap pool links fixed to use `pancakeswap.finance` instead of Uniswap URL.
+- Aerodrome pool links use `aerodrome.finance/liquidity?query=<pool_id>`.
+- Chain filter switched from multi-select toggle to single-select for clarity.
+- Inactive chain buttons show strikethrough + dimmed style.
+
+### Closed positions tab
+- "Open / Closed" view toggle added to header using chain-btn style.
+- Closed tab shows all historical cycles: pair, NFT ID, open/close dates, duration, price range, time in range %, fees, P&L, close reason.
+- Summary cards: total count, total P&L, total fees, avg duration.
+
+### Range bar
+- Lower/upper prices shown below each end of the range bar.
+
 ## 2026-06-12
 
 ### New features
