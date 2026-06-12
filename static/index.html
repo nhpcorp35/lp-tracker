@@ -244,6 +244,10 @@
   </div>
 
   <!-- Portfolio table -->
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('open')" id="tab-open">Open Positions</button>
+    <button class="tab-btn" onclick="switchTab('closed')" id="tab-closed">Closed <span id="closed-count" style="font-size:11px;color:var(--muted)"></span></button>
+  </div>
   <div id="portfolio-section" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;display:none;">
     <table class="portfolio-table">
       <thead>
