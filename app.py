@@ -1191,11 +1191,11 @@ def api_screener():
         try:
             url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
             payload = json.dumps({"query": query}).encode()
-            req = urllib.request.Request(url, data=payload, headers={
+            req = urllib_req.Request(url, data=payload, headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {GRAPH_API_KEY}",
             })
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib_req.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
             app.logger.info("Screener %s: raw keys=%s errors=%s pool_count=%s", chain_key, list(data.keys()), data.get("errors"), len(data.get("data", {}).get("pools", [])))
             pools = data.get("data", {}).get("pools", [])
@@ -1239,7 +1239,7 @@ def api_screener():
             app.logger.warning("Screener fetch failed for %s: %s", chain_key, e)
             return []
 
-    import urllib.request as _ur
+    import urllib.request as urllib_req
     from concurrent.futures import ThreadPoolExecutor, as_completed
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {executor.submit(fetch_chain, k, v): k for k, v in CHAINS.items()}
