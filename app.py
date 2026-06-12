@@ -192,7 +192,7 @@ CHAINS = {
     },
     "arbitrum": {
         "name":        "Arbitrum",
-        "subgraph_id": "FQ6JYszEKApsBpAmiHesRsd9Ygc6mzmpNRANeVQFYoVX",
+        "subgraph_id": "HUZDsRpEVP2AvzDCyzDHtdc64dyDxx8FQjzsmqSg4H3B",
         "rpc":         ALCHEMY_ARB,
         "npm":         "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     },
@@ -1150,60 +1150,34 @@ def screener_page():
 
 
 
-AERODROME_SUBGRAPH_ID = "GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM"
+AERODROME_GOLDSKY_URL = (
+    "https://api.goldsky.com/api/public/project_clnbo3e3c16lj33xva5r2ckud"
+    "/subgraphs/aerodrome-sl-base/stable/gn"
+)
 
 def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
     """
-    Fetch top Aerodrome Slipstream CL pools from The Graph subgraph.
+    Fetch top Aerodrome Slipstream CL pools via Goldsky subgraph.
+    Falls back to The Graph if Goldsky fails.
     Returns list of pool dicts in same format as subgraph screener results.
     """
-    try:
-        url = f"{GRAPH_BASE}/{AERODROME_SUBGRAPH_ID}"
-        query = """
-        {
-          clPools(
-            first: 100,
-            orderBy: volumeUSD,
-            orderDirection: desc,
-            where: { totalValueLockedUSD_gte: "%(min_tvl)s", volumeUSD_gt: "0" }
-          ) {
-            id
-            tickSpacing
-            totalValueLockedUSD
-            volumeUSD
-            token0 { symbol }
-            token1 { symbol }
-            poolDayData(first: 7, orderBy: date, orderDirection: desc) {
-              date
-              volumeUSD
-              feesUSD
-              tvlUSD
-            }
-          }
-        }
-        """ % {"min_tvl": min_tvl}
+    # tickSpacing → fee tier decimal mapping for Aerodrome Slipstream
+    TICK_FEE = {1: 0.0001, 50: 0.0005, 100: 0.003, 200: 0.01}
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GRAPH_API_KEY}",
-        }
-        r = requests.post(url, json={"query": query}, headers=headers, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        if data.get("errors"):
-            app.logger.warning("Aerodrome subgraph errors: %s", data["errors"])
-        pools = data.get("data", {}).get("clPools", [])
-
-        # tickSpacing → fee tier decimal mapping for Aerodrome Slipstream
-        TICK_FEE = {1: 0.0001, 50: 0.0005, 100: 0.003, 200: 0.01}
-
+    def _parse_pools(pools_data, fee_field="feeTier"):
         results = []
-        for p in pools:
+        for p in pools_data:
             tvl = float(p.get("totalValueLockedUSD") or 0)
             if tvl < min_tvl:
                 continue
-            tick_spacing = int(p.get("tickSpacing", 100))
-            fee_decimal = TICK_FEE.get(tick_spacing, tick_spacing / 1_000_000)
+            # Support both feeTier and tickSpacing
+            if fee_field == "feeTier":
+                fee_raw = int(p.get("feeTier", 3000))
+                fee_decimal = fee_raw / 1_000_000
+            else:
+                tick_spacing = int(p.get("tickSpacing", 100))
+                fee_decimal = TICK_FEE.get(tick_spacing, tick_spacing / 1_000_000)
+                fee_raw = int(fee_decimal * 1_000_000)
             day_data = p.get("poolDayData", [])
             daily_aprs = []
             for d in day_data:
@@ -1218,15 +1192,13 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
                 continue
             avg_vol = sum(float(d.get("volumeUSD", 0)) for d in day_data) / max(len(day_data), 1)
             vol_tvl = avg_vol / tvl if tvl > 0 else 0
-            token0 = p.get("token0", {}).get("symbol", "?")
-            token1 = p.get("token1", {}).get("symbol", "?")
             results.append({
                 "chain": "aerodrome",
                 "chain_name": "Aerodrome (Base)",
                 "pool_id": p["id"],
-                "token0": token0,
-                "token1": token1,
-                "fee_tier": int(fee_decimal * 1_000_000),
+                "token0": p.get("token0", {}).get("symbol", "?"),
+                "token1": p.get("token1", {}).get("symbol", "?"),
+                "fee_tier": fee_raw,
                 "fee_pct": round(fee_decimal * 100, 4),
                 "tvl_usd": round(tvl, 0),
                 "avg_daily_vol_usd": round(avg_vol, 0),
@@ -1234,8 +1206,73 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
                 "apr": round(apr, 1),
                 "days_data": len(day_data),
             })
-        app.logger.info("Aerodrome subgraph: got %s qualifying pools", len(results))
         return results
+
+    def _query(url, entity, fee_field, headers=None):
+        query = """
+        {
+          %(entity)s(
+            first: 100,
+            orderBy: volumeUSD,
+            orderDirection: desc,
+            where: { totalValueLockedUSD_gte: "%(min_tvl)s", volumeUSD_gt: "0" }
+          ) {
+            id
+            %(fee_field)s
+            totalValueLockedUSD
+            volumeUSD
+            token0 { symbol }
+            token1 { symbol }
+            poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+              date
+              volumeUSD
+              feesUSD
+              tvlUSD
+            }
+          }
+        }
+        """ % {"entity": entity, "fee_field": fee_field, "min_tvl": min_tvl}
+        r = requests.post(url, json={"query": query}, headers=headers or {}, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        errors = data.get("errors")
+        pools = data.get("data", {}).get(entity, [])
+        return pools, errors
+
+    try:
+        # Try Goldsky first (Aerodrome's own subgraph, no API key needed)
+        for entity, fee_field in [("pools", "feeTier"), ("clPools", "tickSpacing"), ("pools", "tickSpacing")]:
+            try:
+                pools, errors = _query(AERODROME_GOLDSKY_URL, entity, fee_field)
+                if errors:
+                    app.logger.debug("Aerodrome Goldsky %s errors: %s", entity, errors)
+                    continue
+                if pools is not None:
+                    results = _parse_pools(pools, fee_field)
+                    app.logger.info("Aerodrome Goldsky (%s): got %s qualifying pools", entity, len(results))
+                    return results
+            except Exception as e:
+                app.logger.debug("Aerodrome Goldsky %s failed: %s", entity, e)
+                continue
+
+        # Fallback: The Graph with API key
+        url = f"{GRAPH_BASE}/{AERODROME_SUBGRAPH_ID}"
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}"}
+        for entity, fee_field in [("pools", "feeTier"), ("clPools", "tickSpacing")]:
+            try:
+                pools, errors = _query(url, entity, fee_field, headers)
+                if errors:
+                    continue
+                if pools is not None:
+                    results = _parse_pools(pools, fee_field)
+                    app.logger.info("Aerodrome TheGraph (%s): got %s qualifying pools", entity, len(results))
+                    return results
+            except Exception as e:
+                app.logger.debug("Aerodrome TheGraph %s failed: %s", entity, e)
+                continue
+
+        app.logger.warning("Aerodrome screener: all sources failed")
+        return []
     except Exception as e:
         app.logger.warning("Aerodrome screener fetch failed: %s", e)
         return []
