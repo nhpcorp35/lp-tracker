@@ -661,8 +661,9 @@ function renderPortfolioTable(positions) {
     const pnlStr = pnlUsd != null
       ? `<span style="color:${pnlUsd>=0?"var(--green)":"var(--red)"}">${pnlUsd>=0?"+":""}${fmtUsd(pnlUsd)}</span>`
       : "<span style='color:var(--muted)'>—</span>";
-    const aprStr = pos.apr_estimate != null
-      ? `<span style="color:${pos.apr_estimate>=10?"var(--green)":pos.apr_estimate>=3?"var(--amber)":"var(--red)"}">${fmtPct(pos.apr_estimate)}</span>`
+    const poolApr = pos.advertised_apr ?? pos.apr_estimate;
+    const aprStr = poolApr != null
+      ? `<span style="color:${poolApr>=10?"var(--green)":poolApr>=3?"var(--amber)":"var(--red)"}">${fmtPct(poolApr)}</span>`
       : "—";
     const detailUrl = `/position/${pos.id}?chain=${pos.chain || currentChain}`;
 
