@@ -168,6 +168,9 @@
     <button class="chain-btn active" onclick="switchTab('open')" id="tab-open">Open</button>
     <button class="chain-btn" onclick="switchTab('closed')" id="tab-closed">Closed <span id="closed-count"></span></button>
   </div>
+  <div class="chain-selector" style="margin-left:8px;border-left:1px solid var(--border);padding-left:12px">
+    <a href="/screener" class="chain-btn" style="text-decoration:none">🔍 Screener</a>
+  </div>
   <div class="add-form">
     <input type="text" class="wallet-input" id="wallet-input" placeholder="Wallet 0x... or NFT ID" autocomplete="off" spellcheck="false" style="max-width:280px">
     <button class="btn" id="load-btn" onclick="addPosition()">Add</button>
