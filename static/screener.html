@@ -62,6 +62,7 @@
   .chain-base { background: rgba(16,185,129,0.12); color: var(--green); }
   .chain-ethereum { background: rgba(99,102,241,0.12); color: #818cf8; }
   .chain-arbitrum { background: rgba(251,146,60,0.12); color: #fb923c; }
+  .chain-aerodrome { background: rgba(168,85,247,0.12); color: #a855f7; }
   .chain-base-pancake { background: rgba(245,158,11,0.12); color: var(--amber); }
 
   .apr-high { color: var(--green); font-weight: 600; }
@@ -102,6 +103,7 @@
       <div class="chain-filter">
         <button class="cbtn active" id="cb-base" onclick="toggleChain('base')">Base</button>
         <button class="cbtn active" id="cb-base-pancake" onclick="toggleChain('base-pancake')">Cake</button>
+        <button class="cbtn active" id="cb-aerodrome" onclick="toggleChain('aerodrome')">Aero</button>
         <button class="cbtn active" id="cb-ethereum" onclick="toggleChain('ethereum')">ETH</button>
         <button class="cbtn active" id="cb-arbitrum" onclick="toggleChain('arbitrum')">ARB</button>
       </div>
@@ -135,7 +137,7 @@
 let _pools = [];
 let _sortKey = 'apr';
 let _sortDir = -1;
-let _activeChains = new Set(['base', 'base-pancake', 'ethereum', 'arbitrum']);
+let _activeChains = new Set(['base', 'base-pancake', 'aerodrome', 'ethereum', 'arbitrum']);
 
 function fmtUsd(v) {
   if (v == null) return '—';
@@ -181,6 +183,8 @@ function renderTable() {
     let uniUrl;
     if (p.chain === 'base-pancake') {
       uniUrl = `https://pancakeswap.finance/liquidity/pool/base/${p.pool_id}`;
+    } else if (p.chain === 'aerodrome') {
+      uniUrl = `https://aerodrome.finance/liquidity?query=${p.pool_id}`;
     } else if (p.chain === 'arbitrum') {
       uniUrl = `https://app.uniswap.org/explore/pools/arbitrum/${p.pool_id}`;
     } else {
