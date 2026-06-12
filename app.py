@@ -192,7 +192,7 @@ CHAINS = {
     },
     "arbitrum": {
         "name":        "Arbitrum",
-        "subgraph_id": "HUZDsRpEVP2AvzDCyzDHtdc64dyDxx8FQjzsmqSg4H3B",
+        "subgraph_id": "FbCGRftH4a3yZugY7TnbYgPJVEv2LvMT6oF1fxPe9aJM",
         "rpc":         ALCHEMY_ARB,
         "npm":         "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     },
@@ -1150,6 +1150,7 @@ def screener_page():
 
 
 
+AERODROME_SUBGRAPH_ID = "GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM"
 AERODROME_GOLDSKY_URL = (
     "https://api.goldsky.com/api/public/project_clnbo3e3c16lj33xva5r2ckud"
     "/subgraphs/aerodrome-sl-base/stable/gn"
