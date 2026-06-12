@@ -307,6 +307,31 @@
 
 </main>
 
+<section id="closed-section">
+  <div class="closed-summary-grid" id="closed-summary-grid"></div>
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Pair</th>
+          <th>NFT ID</th>
+          <th>Opened</th>
+          <th>Closed</th>
+          <th>Duration</th>
+          <th>Range</th>
+          <th>Time in Range</th>
+          <th>Fees</th>
+          <th>P&L</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody id="closed-tbody">
+        <tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted)">No closed positions yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <script>
 
 function fmtUsd(v) {
@@ -801,6 +826,115 @@ function reloadCurrentPosition() { loadPortfolio(); }
 loadAlertSettings();
 loadLpEntries();
 loadPortfolio();
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('portfolio-section').style.display = tab === 'open' ? '' : 'none';
+  document.getElementById('closed-section').style.display   = tab === 'closed' ? '' : 'none';
+  document.getElementById('tab-open').classList.toggle('active', tab === 'open');
+  document.getElementById('tab-closed').classList.toggle('active', tab === 'closed');
+  if (tab === 'closed') loadClosed();
+}
+
+let _closedLoaded = false;
+async function loadClosed() {
+  if (_closedLoaded) return;
+  _closedLoaded = true;
+  try {
+    const res = await fetch('/api/rebalances');
+    const data = await res.json();
+    renderClosed(data.pools || []);
+  } catch(e) {
+    document.getElementById('closed-tbody').innerHTML =
+      `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted)">Failed to load: ${e.message}</td></tr>`;
+  }
+}
+
+function fmtDuration(sec) {
+  if (!sec) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function fmtTs(ts) {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'});
+}
+
+function renderClosed(pools) {
+  // Flatten all closed cycles across pools
+  const rows = [];
+  pools.forEach(pool => {
+    const pair = `${pool.token0_symbol}/${pool.token1_symbol}`;
+    const feePct = ((pool.fee_tier || 0) / 10000).toFixed(2) + '%';
+    const chainLabel = { 'base':'Uni','base-pancake':'Cake','ethereum':'ETH','arbitrum':'ARB' }[pool.chain] || pool.chain;
+    (pool.cycles || []).forEach(c => {
+      if (!c.close_ts) return; // skip open
+      rows.push({ pair, feePct, chainLabel, ...c });
+    });
+  });
+
+  // Summary cards
+  const totalPnl  = rows.reduce((s,r) => s + (r.pnl_usd || 0), 0);
+  const totalFees = rows.reduce((s,r) => s + (r.fees_collected_usd || 0), 0);
+  const avgDur    = rows.length ? rows.reduce((s,r) => s + (r.duration_sec || 0), 0) / rows.length : 0;
+  document.getElementById('closed-count').textContent = `(${rows.length})`;
+  document.getElementById('closed-summary-grid').innerHTML = [
+    ['Closed Positions', rows.length, ''],
+    ['Total P&L', (totalPnl >= 0 ? '+' : '') + fmtUsd(totalPnl), totalPnl >= 0 ? 'var(--green)' : 'var(--red)'],
+    ['Total Fees', fmtUsd(totalFees), 'var(--teal)'],
+    ['Avg Duration', fmtDuration(Math.round(avgDur)), ''],
+  ].map(([label, val, color]) => `
+    <div class="closed-summary-card">
+      <div class="closed-summary-label">${label}</div>
+      <div class="closed-summary-value" style="${color ? 'color:' + color : ''}">${val}</div>
+    </div>`).join('');
+
+  if (!rows.length) return;
+
+  document.getElementById('closed-tbody').innerHTML = rows.map(r => {
+    const pnlColor = (r.pnl_usd || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+    const pnlStr   = r.pnl_usd != null ? `<span style="color:${pnlColor}">${r.pnl_usd >= 0 ? '+' : ''}${fmtUsd(r.pnl_usd)}</span>` : '—';
+    const feesStr  = r.fees_collected_usd != null ? `<span style="color:var(--teal)">${fmtUsd(r.fees_collected_usd)}</span>` : '—';
+    const reasonColor = r.close_reason === 'rebalanced' ? 'var(--amber)' : 'var(--muted)';
+    const reasonLabel = r.close_reason === 'rebalanced' ? '↻ rebalanced' : '✓ closed';
+
+    // Mini range bar (no current price tick for closed)
+    let rangeBar = '—';
+    if (r.price_lower && r.price_upper) {
+      rangeBar = `<div style="white-space:nowrap">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--muted)">${fmtPrice(r.price_lower)} – ${fmtPrice(r.price_upper)}</div>
+      </div>`;
+    }
+
+    // Time in range — from range_stats if available, else approximate from duration
+    const tirStr = r.time_in_range_pct != null
+      ? `<span style="color:${r.time_in_range_pct >= 70 ? 'var(--green)' : r.time_in_range_pct >= 40 ? 'var(--amber)' : 'var(--red)'}">
+          ${r.time_in_range_pct.toFixed(0)}%</span>`
+      : '—';
+
+    return `<tr>
+      <td>
+        <span style="font-weight:600;color:#fff">${r.pair}</span>
+        <span class="fee-badge" style="font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue);margin-left:4px">${r.feePct}</span>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.chainLabel}</div>
+      </td>
+      <td style="font-family:var(--mono);color:var(--muted);font-size:11px">#${r.nft_id}</td>
+      <td style="color:var(--muted);font-size:12px">${fmtTs(r.open_ts)}</td>
+      <td style="color:var(--muted);font-size:12px">${fmtTs(r.close_ts)}</td>
+      <td style="font-family:var(--mono);font-size:12px">${fmtDuration(r.duration_sec)}</td>
+      <td>${rangeBar}</td>
+      <td>${tirStr}</td>
+      <td>${feesStr}</td>
+      <td>${pnlStr}</td>
+      <td style="font-size:11px;color:${reasonColor}">${reasonLabel}</td>
+    </tr>`;
+  }).join('');
+}
 </script>
 </body>
 </html>
