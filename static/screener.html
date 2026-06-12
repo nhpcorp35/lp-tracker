@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pool Screener — LP Tracker</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <style>
   :root {
     --bg: #0a0a0f; --surface: #13131a; --card: #1a1a24;
@@ -39,8 +40,9 @@
   /* Chain filter */
   .chain-filter { display: flex; gap: 4px; align-items: center; }
   .chain-filter-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 2px; }
-  .cbtn { padding: 5px 10px; border-radius: 5px; font-size: 11px; font-weight: 500; cursor: pointer; background: var(--card); border: 1px solid var(--border2); color: #3a3a4a; opacity: 0.4; text-decoration: line-through; }
-  .cbtn.active { background: var(--blue); border-color: var(--blue); color: #fff; opacity: 1; text-decoration: none; }
+  .cbtn { padding: 5px 10px; border-radius: 5px; font-size: 11px; font-weight: 500; cursor: pointer; background: var(--card); border: 1px solid var(--border2); color: var(--muted); }
+  .cbtn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .cbtn:hover:not(.active) { border-color: var(--blue); color: var(--text); }
 
   /* Status */
   .status { font-size: 13px; color: var(--muted); margin-bottom: 1rem; min-height: 20px; }
@@ -230,6 +232,8 @@ async function scan() {
     btn.textContent = '🔍 Scan';
   }
 }
+  // Auto-scan on load
+  scan();
 </script>
 </body>
 </html>
