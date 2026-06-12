@@ -178,7 +178,14 @@ function renderTable() {
 
   document.getElementById('pool-tbody').innerHTML = filtered.map(p => {
     const aprClass = p.apr >= 80 ? 'apr-high' : p.apr >= 40 ? 'apr-mid' : 'apr-low';
-    const uniUrl = `https://app.uniswap.org/explore/pools/${p.chain.startsWith('base') ? 'base' : p.chain}/${p.pool_id}`;
+    let uniUrl;
+    if (p.chain === 'base-pancake') {
+      uniUrl = `https://pancakeswap.finance/liquidity/pool/base/${p.pool_id}`;
+    } else if (p.chain === 'arbitrum') {
+      uniUrl = `https://app.uniswap.org/explore/pools/arbitrum/${p.pool_id}`;
+    } else {
+      uniUrl = `https://app.uniswap.org/explore/pools/base/${p.pool_id}`;
+    }
     return `<tr>
       <td>
         <span class="pair-cell">${p.token0}/${p.token1}</span>
