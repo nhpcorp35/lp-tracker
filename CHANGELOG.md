@@ -1,3 +1,9 @@
+## 2026-06-12 (session continued)
+- Fixed Arbitrum screener: replaced broken subgraph IDs (Messari analytics schema / no allocations) with FbCGRftH4a3yZugY7TnbYgPJVEv2LvMT6oF1fxPe9aJM (Uniswap V3 Arbitrum, 40K signal)
+- Fixed Aerodrome screener: GeckoTerminal 403 replaced with multi-source fallback (Goldsky → TheGraph); currently resolving via TheGraph AMM pools entity on GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM
+- Fixed screener renderTable() removing spurious client-side TVL/APR re-filter that caused higher min-TVL to show more results; filters are now server-side only (require re-Scan)
+- All five chains now returning pools: Base Uni, Base Cake, Ethereum, Arbitrum, Aerodrome
+
 ## 2026-06-12
 - Fixed Aerodrome Slipstream pool screener: replaced GeckoTerminal API (returns 403 from Railway datacenter IPs) with The Graph subgraph GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM ("Aerodrome Base Full"), using same gateway.thegraph.com + GRAPH_API_KEY pattern as other chains
 - Updated fetch_aerodrome_pools to query clPools entity with poolDayData, mapping tickSpacing to fee tier (1→0.01%, 50→0.05%, 100→0.3%, 200→1%)
