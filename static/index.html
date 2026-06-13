@@ -803,6 +803,11 @@ async function loadHistory() {
     const values  = snapshots.map(s => s.total_value);
     const fees    = snapshots.map(s => s.total_fees);
     const aprs    = snapshots.map(s => s.avg_apr);
+
+    // P&L = value - total deposited capital (from lp_entries)
+    const totalDeposited = Object.values(_lpEntries||{}).reduce((s,e) => s+(e.entry_usd||0), 0);
+    const pnls = totalDeposited > 0 ? values.map(v => v - totalDeposited) : null;
+
     document.getElementById("hist-peak").textContent = "$" + Math.max(...values).toLocaleString("en-US",{maximumFractionDigits:0});
     document.getElementById("hist-low").textContent  = "$" + Math.min(...values).toLocaleString("en-US",{maximumFractionDigits:0});
     const validAprs = aprs.filter(a=>a!=null);
@@ -811,11 +816,19 @@ async function loadHistory() {
     const avgPct = inRangePcts.filter(v=>v!=null).reduce((a,b,_,arr)=>a+b/arr.length,0);
     document.getElementById("hist-efficiency").textContent = avgPct ? Math.round(avgPct)+"%" : "—";
     document.getElementById("hist-efficiency").style.color = avgPct>=80?"var(--green)":avgPct>=50?"var(--amber)":"var(--red)";
-    if (valueChart) valueChart.destroy();
-    valueChart = new Chart(document.getElementById("value-chart"), { type:"line", data:{ labels, datasets:[
+
+    const valueDatasets = [
       {label:"Value",data:values,borderColor:"#4a9eff",backgroundColor:"rgba(74,158,255,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3},
-      {label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[4,2]}
-    ]}, options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Portfolio Value (USD)",color:"#9ca3af",font:{size:11}}}} });
+      {label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:false,tension:0.3,borderDash:[4,2]},
+    ];
+    if (pnls) valueDatasets.push({label:"P&L",data:pnls,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.06)",borderWidth:1.5,pointRadius:0,fill:false,tension:0.3,borderDash:[2,2]});
+
+    if (valueChart) valueChart.destroy();
+    valueChart = new Chart(document.getElementById("value-chart"), { type:"line", data:{ labels, datasets: valueDatasets },
+      options:{...chartDefaults,plugins:{...chartDefaults.plugins,
+        title:{display:true,text:"Portfolio Value (USD)",color:"#9ca3af",font:{size:11}},
+        legend:{display:!!pnls,labels:{color:"#6b7280",font:{size:10},boxWidth:12}}
+      }} });
     if (aprChart) aprChart.destroy();
     aprChart = new Chart(document.getElementById("apr-chart"), { type:"line", data:{ labels, datasets:[{label:"APR %",data:aprs,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3}]}, options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Fee APR (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
     if (window.inRangeChart) window.inRangeChart.destroy();
