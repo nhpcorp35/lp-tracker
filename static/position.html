@@ -315,6 +315,18 @@
   </div>
 
 
+  <!-- Fee Collection Log -->
+  <div id="fee-collections-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">💰 FEE COLLECTIONS</div>
+      <div style="display:flex;gap:16px;align-items:center;">
+        <span id="fee-collections-total" style="font-family:var(--mono);font-size:12px;color:var(--green);"></span>
+        <span id="fee-collections-count" style="font-family:var(--mono);font-size:11px;color:var(--muted);"></span>
+      </div>
+    </div>
+    <div id="fee-collections-body" style="font-family:var(--mono);font-size:12px;"></div>
+  </div>
+
   <div id="rebalance-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">🔄 REBALANCE TRACKER</div>
@@ -590,6 +602,30 @@ function renderRangeLog(data) {
 }
 
 
+// ── Fee collection log ────────────────────────────────────────────────────────
+async function loadFeeCollections(positionId, chain) {
+  try {
+    const res  = await fetch(`/api/fee-collections/${positionId}?chain=${chain}`, { credentials:"same-origin" });
+    const data = await res.json();
+    const collections = data.collections || [];
+    const section = document.getElementById("fee-collections-section");
+    if (!collections.length) return;
+    section.style.display = "block";
+    document.getElementById("fee-collections-total").textContent = `Total collected: ${fmtUsd(data.total_collected)}`;
+    document.getElementById("fee-collections-count").textContent = `${data.count} event${data.count!==1?"s":""}`;
+
+    const rows = collections.map(c => {
+      const dt = new Date(c.ts * 1000).toLocaleDateString("en-US", {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+      return `<div style="display:grid;grid-template-columns:140px 100px 1fr;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+        <span style="color:var(--muted)">${dt}</span>
+        <span style="color:var(--green)">+${fmtUsd(c.collected)}</span>
+        <span style="color:var(--muted)">fees ${fmtUsd(c.fees_before)} → ${fmtUsd(c.fees_after)} · pos ${fmtUsd(c.value_usd)}</span>
+      </div>`;
+    }).join("");
+    document.getElementById("fee-collections-body").innerHTML = rows;
+  } catch(e) { console.error("Fee collections failed:", e); }
+}
+
 async function loadRebalances(poolKey, nftId) {
   try {
     const res = await fetch("/api/rebalances", { credentials: "same-origin" });
@@ -769,12 +805,13 @@ async function loadPosition() {
     const inRangeStr = _pos.in_range ? "in range" : "out of range";
     setStatus(`#${positionId} · ${fmtUsd(_pos.value_usd)} · ${inRangeStr} · updated just now`, "ok");
     showRebalanceSuggestion(_pos);
-    // Load all detail components
+    // Load volume first so APR comparison chart has pool data
+    await loadVolumeChart(_pos.pool_address, chain);
     loadHistory();
-    loadVolumeChart(_pos.pool_address, chain);
     loadRangeStatsAndTimeline();
     loadRangeEvents(positionId);
     const poolKey = `${chain}:${_pos.pool_address}`;
+    loadFeeCollections(positionId, chain);
     loadRebalances(poolKey, positionId);
   } catch(e) { showError("Network error: " + e.message); setStatus("Error", "warn"); }
 }
@@ -814,10 +851,29 @@ async function loadHistory() {
     const avgIr = irPct.length ? Math.round(irPct.reduce((a,b)=>a+b,0)/irPct.length) : null;
     document.getElementById("hist-efficiency").textContent = avgIr!=null ? avgIr+"%" : "—";
     document.getElementById("hist-efficiency").style.color = avgIr>=80?"var(--green)":avgIr>=50?"var(--amber)":"var(--red)";
+    // Pool APR overlay from volume data (feesUSD/tvlUSD * 365 * 100)
+    let poolAprDataset = null;
+    if (_volumeData && _volumeData.length) {
+      const volByDate = {};
+      _volumeData.forEach(r => { volByDate[r.date] = r; });
+      const poolAprs = snapshots.map(s => {
+        const dayTs = Math.floor(s.ts / 86400) * 86400;
+        const row   = volByDate[dayTs] || volByDate[dayTs - 86400];
+        if (!row) return null;
+        const tvl = parseFloat(row.tvlUSD||0);
+        const fee = parseFloat(row.feesUSD||0);
+        return tvl > 0 ? parseFloat((fee / tvl * 365 * 100).toFixed(2)) : null;
+      });
+      if (poolAprs.some(v => v != null)) {
+        poolAprDataset = {label:"Pool APR %",data:poolAprs,borderColor:"rgba(156,163,175,0.6)",backgroundColor:"transparent",borderWidth:1.5,pointRadius:0,fill:false,tension:0.3,borderDash:[3,3],spanGaps:true};
+      }
+    }
     if (valueChart) valueChart.destroy();
     valueChart = new Chart(document.getElementById("value-chart"),{ type:"line",data:{labels,datasets:[{label:"Value",data:values,borderColor:"#4a9eff",backgroundColor:"rgba(74,158,255,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3},{label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[4,2]}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Position Value (USD)",color:"#9ca3af",font:{size:11}}}} });
+    const aprDatasets = [{label:"Your APR %",data:aprs,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3}];
+    if (poolAprDataset) aprDatasets.push(poolAprDataset);
     if (aprChart) aprChart.destroy();
-    aprChart = new Chart(document.getElementById("apr-chart"),{ type:"line",data:{labels,datasets:[{label:"APR %",data:aprs,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"APR (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
+    aprChart = new Chart(document.getElementById("apr-chart"),{ type:"line",data:{labels,datasets:aprDatasets},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Your APR vs Pool APR (%)",color:"#9ca3af",font:{size:11}},legend:{display:!!poolAprDataset,labels:{color:"#6b7280",font:{size:10},boxWidth:12}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
     if (window.inRangeChart) window.inRangeChart.destroy();
     window.inRangeChart = new Chart(document.getElementById("inrange-chart"),{ type:"line",data:{labels,datasets:[{label:"In Range",data:inRangeArr,borderColor:"#2dcd7a",backgroundColor:"rgba(45,205,122,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.1,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"In Range (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,min:0,max:100,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
   } catch(e) { console.error("History failed:", e); }
