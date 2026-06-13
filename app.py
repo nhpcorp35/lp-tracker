@@ -1968,14 +1968,15 @@ def _check_rebalance(pos_id: str, chain: str, p: dict):
             "Rebalance detected on %s: %s → %s",
             pool_key, last["nft_id"], pos_id
         )
-        # Close the old cycle
+        # Close the old cycle — use last known value of the OLD position, not the new one
         last["close_ts"]    = ts
         last["close_price"] = round(p.get("current_price") or 0, 4)
-        close_val           = round(p.get("value_usd") or 0, 2)   # price at close ≈ new open
+        close_val           = round(last.get("current_value_usd") or last.get("value_at_open") or 0, 2)
         last["value_at_close"] = close_val
         open_val = last.get("value_at_open") or close_val
         fees_col = last.get("fees_collected_usd") or 0
-        last["pnl_usd"] = round((close_val - open_val) + fees_col, 2)
+        fees_unc = last.get("fees_usd_uncollected") or 0
+        last["pnl_usd"] = round((close_val - open_val) + fees_col + fees_unc, 2)
         last["duration_sec"] = ts - last["open_ts"]
 
         # Open a new cycle for the new NFT
