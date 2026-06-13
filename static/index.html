@@ -713,7 +713,7 @@ function renderSummary(positions) {
 }
 
 // ── Load all saved positions in parallel ──────────────────────────────────────
-async function loadPortfolio() {
+async function loadPortfolio(bust=false) {
   setStatus("Loading portfolio…", "neutral");
   try {
     const res = await fetch("/api/saved-positions", { credentials:"same-origin" });
@@ -730,7 +730,8 @@ async function loadPortfolio() {
 
   // Fetch all positions in parallel
   const results = await Promise.allSettled(_saved.map(async s => {
-    const res = await fetch(`/api/position/${s.id}?chain=${s.chain}`, { credentials:"same-origin" });
+    const bustParam = bust ? "&bust=1" : "";
+    const res = await fetch(`/api/position/${s.id}?chain=${s.chain}${bustParam}`, { credentials:"same-origin" });
     const data = await res.json();
     const positions = data.positions || [];
     positions.forEach(p => { p.chain = s.chain; });
@@ -754,7 +755,7 @@ async function loadPortfolio() {
 }
 
 async function refreshAll() {
-  await loadPortfolio();
+  await loadPortfolio(true);
 }
 
 // ── Add a new position (wallet or NFT ID) ─────────────────────────────────────
