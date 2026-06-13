@@ -1188,9 +1188,10 @@ def get_position_by_id(position_id):
     if chain not in CHAINS:
         return jsonify({"error": f"Unsupported chain: {chain}"}), 400
 
+    bust = request.args.get("bust", "0") == "1"
     cache_key = f"id:{chain}:{position_id}"
     cached = _cache.get(cache_key)
-    if cached and time.time() - cached["fetched_at"] < CACHE_TTL:
+    if not bust and cached and time.time() - cached["fetched_at"] < CACHE_TTL:
         return jsonify({"positions": cached["positions"], "cached": True,
                         "fetched_at": cached["fetched_at"], "chain": chain})
 
@@ -2440,3 +2441,4 @@ if __name__ == "__main__":
     _alert_thread = threading.Thread(target=_alert_poll_loop, daemon=True)
     _alert_thread.start()
     app.run(host="0.0.0.0", port=5001, debug=False)
+
