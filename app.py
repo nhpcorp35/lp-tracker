@@ -1885,6 +1885,21 @@ def _check_rebalance(pos_id: str, chain: str, p: dict):
     ts       = int(time.time())
     data     = _load_rebalances()
 
+    # Guard: if this NFT is already active in a different pool group, skip
+    # (prevents spurious groups from bad subgraph responses)
+    for existing_key, existing_pd in data["pools"].items():
+        if existing_key == pool_key:
+            continue
+        if not existing_key.startswith(chain + ":"):
+            continue
+        existing_cycles = existing_pd.get("cycles", [])
+        if existing_cycles and existing_cycles[-1]["nft_id"] == pos_id and existing_cycles[-1]["close_ts"] is None:
+            app.logger.warning(
+                "Rebalance tracker: NFT %s is active in %s, ignoring claim from %s",
+                pos_id, existing_key, pool_key
+            )
+            return
+
     if pool_key not in data["pools"]:
         # First time we see this pool — initialize
         data["pools"][pool_key] = {
@@ -2206,6 +2221,27 @@ def sync_watch():
     settings["watched_positions"] = watched
     _save_alert_settings(settings)
     return jsonify({"ok": True, "added": added, "total_watched": len(watched)})
+
+
+@app.route("/api/rebalances/cleanup", methods=["POST"])
+def cleanup_rebalances():
+    """Remove pool groups with no valid cycles (spurious entries from bad subgraph data)."""
+    data    = _load_rebalances()
+    before  = len(data["pools"])
+    to_del  = []
+    for pool_key, pd in data["pools"].items():
+        cycles = pd.get("cycles", [])
+        # Remove pools with no cycles, or only zero-duration closed cycles with no fees/pnl
+        valid = [c for c in cycles if
+                 c.get("close_ts") is None or  # active
+                 (c.get("duration_sec") or 0) > 60 or  # ran for >1 min
+                 (c.get("fees_collected_usd") or 0) > 0]
+        if not valid:
+            to_del.append(pool_key)
+    for k in to_del:
+        del data["pools"][k]
+    _save_rebalances(data)
+    return jsonify({"ok": True, "removed": len(to_del), "before": before, "after": len(data["pools"]), "removed_keys": to_del})
 
 
 # ── Range events API ─────────────────────────────────────────────────────────
