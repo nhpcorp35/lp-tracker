@@ -635,7 +635,7 @@ function updateSaveBtn() {
   const btn = document.getElementById("save-pos-btn");
   if (!btn) return;
   const exists = _saved.find(s => s.id===positionId && s.chain===chain);
-  btn.textContent = exists ? "⭐ Saved" : "⭐ Save";
+  btn.textContent = exists ? "● Tracking" : "+ Track";
   btn.classList.toggle("saved", !!exists);
 }
 async function toggleSavePosition() {
@@ -680,8 +680,7 @@ function buildDetailCard(pos) {
         <div class="fee-badge">${feePct}</div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
-        <button class="save-pos-btn" id="save-pos-btn" onclick="toggleSavePosition()">⭐ Save</button>
-        <button class="btn btn-sm" onclick="watchCurrentPosition()" id="watch-current-btn">+ Watch</button>
+        <button class="save-pos-btn" id="save-pos-btn" onclick="toggleSavePosition()">+ Track</button>
         <div class="range-badge ${inRange?"in":"out"}">${inRange?"● IN RANGE":"● OUT OF RANGE"}</div>
       </div>
     </div>
@@ -761,7 +760,7 @@ async function loadHistory() {
       section.querySelector("#history-title").insertAdjacentHTML("afterend",
         `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:16px 0;">
           Not enough history yet — snapshots taken hourly.<br>
-          <span style="font-size:11px;">Make sure this position is watched (+ Watch button above).</span>
+          <span style="font-size:11px;">History accumulates hourly once a position is tracked.</span>
         </div>`);
       return;
     }
@@ -838,20 +837,7 @@ async function loadRangeStatsAndTimeline() {
 if (!positionId || positionId === "position") {
   window.location.href = "/";
 } else {
-  loadAlertSettings().then(() => {
-    const btn = document.getElementById("watch-current-btn");
-    const watched = _alertSettings.watched_positions || [];
-    const isWatched = watched.some(w => w.position_id === positionId && w.chain === chain);
-    btn.style.display = "inline-block";
-    if (isWatched) {
-      btn.textContent = "● Watching";
-      btn.style.color = "var(--green)";
-      btn.onclick = null;
-    } else {
-      btn.textContent = "+ Watch";
-      btn.onclick = watchCurrentPosition;
-    }
-  });
+  loadAlertSettings();
   loadLpEntries();
   loadSaved();
   loadPosition();
