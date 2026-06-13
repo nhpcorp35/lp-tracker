@@ -419,7 +419,10 @@ async function watchCurrentPosition() {
   if (!_currentPositionId) return;
   try {
     const res = await fetch("/api/alert-settings/watch", { credentials: "same-origin", method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ position_id: _currentPositionId, chain: _currentChain }) });
-    const d = await res.json(); renderWatchedList(d.watched || []); setAlertStatus(`Watching #${_currentPositionId} ✓`);
+    const d = await res.json();
+    renderWatchedList(d.watched || []);
+    const btn = document.getElementById("watch-current-btn");
+    if (btn) { btn.textContent = "● Watching"; btn.style.color = "var(--green)"; btn.onclick = null; }
   } catch(e) {}
 }
 async function unwatchPosition(positionId, chain) {
@@ -836,7 +839,18 @@ if (!positionId || positionId === "position") {
   window.location.href = "/";
 } else {
   loadAlertSettings().then(() => {
-    document.getElementById("watch-current-btn").style.display = "inline-block";
+    const btn = document.getElementById("watch-current-btn");
+    const watched = _alertSettings.watched_positions || [];
+    const isWatched = watched.some(w => w.position_id === positionId && w.chain === chain);
+    btn.style.display = "inline-block";
+    if (isWatched) {
+      btn.textContent = "● Watching";
+      btn.style.color = "var(--green)";
+      btn.onclick = null;
+    } else {
+      btn.textContent = "+ Watch";
+      btn.onclick = watchCurrentPosition;
+    }
   });
   loadLpEntries();
   loadSaved();
