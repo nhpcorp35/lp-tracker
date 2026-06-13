@@ -2292,6 +2292,45 @@ def get_fee_collections(position_id):
     return jsonify({"collections": collections, "total_collected": round(total, 4), "count": len(collections)})
 
 
+@app.route("/api/closed-positions", methods=["GET"])
+def get_closed_positions():
+    """Return all closed position cycles across all pools, newest first."""
+    data   = _load_rebalances()
+    result = []
+    for pool_key, pd in data["pools"].items():
+        for c in pd.get("cycles", []):
+            if not c.get("close_ts"):
+                continue
+            dur = c.get("duration_sec") or 0
+            result.append({
+                "nft_id":          c["nft_id"],
+                "pool_key":        pool_key,
+                "chain":           pd["chain"],
+                "pool_address":    pd["pool_address"],
+                "token0_symbol":   pd["token0_symbol"],
+                "token1_symbol":   pd["token1_symbol"],
+                "fee_tier":        pd["fee_tier"],
+                "open_ts":         c["open_ts"],
+                "close_ts":        c["close_ts"],
+                "duration_sec":    dur,
+                "open_price":      c.get("open_price"),
+                "close_price":     c.get("close_price"),
+                "price_lower":     c.get("price_lower"),
+                "price_upper":     c.get("price_upper"),
+                "value_at_open":   c.get("value_at_open"),
+                "value_at_close":  c.get("value_at_close"),
+                "fees_collected":  c.get("fees_collected_usd", 0),
+                "fees_uncollected":c.get("fees_usd_uncollected", 0),
+                "pnl_usd":         c.get("pnl_usd"),
+                "close_reason":    c.get("close_reason", "closed"),
+            })
+    result.sort(key=lambda x: x["close_ts"], reverse=True)
+    total_pnl  = sum(r["pnl_usd"] or 0 for r in result)
+    total_fees = sum((r["fees_collected"] or 0) + (r["fees_uncollected"] or 0) for r in result)
+    return jsonify({"positions": result, "total_pnl": round(total_pnl, 2),
+                    "total_fees": round(total_fees, 2), "count": len(result)})
+
+
 @app.route("/api/rebalances", methods=["GET"])
 def get_rebalances():
     """Return rebalance cycle history grouped by pool."""
