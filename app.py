@@ -1022,6 +1022,12 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         "collected_fees_token1": collected_fees1_raw,
         "deposited_token0":      deposited0,
         "deposited_token1":      deposited1,
+
+        # Pool health trends (newest-first, up to 7 days)
+        "pool_day_data": [
+            {"date": d["date"], "volumeUSD": d["volumeUSD"], "feesUSD": d["feesUSD"], "tvlUSD": d["tvlUSD"]}
+            for d in day_data
+        ] if day_data else [],
     }
 
 
@@ -1306,6 +1312,18 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
                 continue
             avg_vol = sum(float(d.get("volumeUSD", 0)) for d in day_data) / max(len(day_data), 1)
             vol_tvl = avg_vol / tvl if tvl > 0 else 0
+
+            # Trend: compare most recent 3 days vs prior 3 days
+            vols = [float(d.get("volumeUSD", 0)) for d in day_data]
+            tvls = [float(d.get("tvlUSD") or tvl) for d in day_data]
+            # day_data is newest-first; recent = [0:3], older = [3:6]
+            vol_recent = sum(vols[:3]) / 3 if len(vols) >= 3 else None
+            vol_older  = sum(vols[3:6]) / 3 if len(vols) >= 6 else None
+            tvl_recent = sum(tvls[:3]) / 3 if len(tvls) >= 3 else None
+            tvl_older  = sum(tvls[3:6]) / 3 if len(tvls) >= 6 else None
+            vol_trend_pct = round((vol_recent - vol_older) / vol_older * 100, 1) if vol_older and vol_older > 0 else None
+            tvl_trend_pct = round((tvl_recent - tvl_older) / tvl_older * 100, 1) if tvl_older and tvl_older > 0 else None
+
             results.append({
                 "chain": "aerodrome",
                 "chain_name": "Aerodrome (Base)",
@@ -1319,6 +1337,8 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
                 "vol_tvl_ratio": round(vol_tvl, 3),
                 "apr": round(apr, 1),
                 "days_data": len(day_data),
+                "vol_trend_pct": vol_trend_pct,
+                "tvl_trend_pct": tvl_trend_pct,
             })
         return results
 
@@ -1460,6 +1480,14 @@ def api_screener():
                     continue
                 avg_vol = sum(float(d.get("volumeUSD", 0)) for d in day_data) / max(len(day_data), 1)
                 vol_tvl = avg_vol / tvl if tvl > 0 else 0
+                vols = [float(d.get("volumeUSD", 0)) for d in day_data]
+                tvls = [float(d.get("tvlUSD") or tvl) for d in day_data]
+                vol_recent = sum(vols[:3]) / 3 if len(vols) >= 3 else None
+                vol_older  = sum(vols[3:6]) / 3 if len(vols) >= 6 else None
+                tvl_recent = sum(tvls[:3]) / 3 if len(tvls) >= 3 else None
+                tvl_older  = sum(tvls[3:6]) / 3 if len(tvls) >= 6 else None
+                vol_trend_pct = round((vol_recent - vol_older) / vol_older * 100, 1) if vol_older and vol_older > 0 else None
+                tvl_trend_pct = round((tvl_recent - tvl_older) / tvl_older * 100, 1) if tvl_older and tvl_older > 0 else None
                 chain_results.append({
                     "chain": chain_key,
                     "chain_name": cfg["name"],
@@ -1473,6 +1501,8 @@ def api_screener():
                     "vol_tvl_ratio": round(vol_tvl, 3),
                     "apr": round(apr, 1),
                     "days_data": len(day_data),
+                    "vol_trend_pct": vol_trend_pct,
+                    "tvl_trend_pct": tvl_trend_pct,
                 })
             return chain_results
         except Exception as e:
