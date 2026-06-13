@@ -267,7 +267,7 @@
   <div id="empty-state-main" style="display:none">
     <div class="empty-state">
       <div class="icon">◈</div>
-      <p>No saved positions yet.<br>Enter a wallet address or NFT ID above to get started.</p>
+      <p>No tracked positions yet.<br>Enter a wallet address or NFT ID above to get started.</p>
     </div>
   </div>
 
@@ -773,20 +773,13 @@ async function addPosition() {
     const res = await fetch(url, { credentials:"same-origin" });
     const data = await res.json();
     const positions = data.positions || [];
-    // Auto-save and auto-watch all returned positions
+    // Auto-track all returned positions (save = watch, handled server-side)
     for (const p of positions) {
       const pid = String(p.id), pchain = p.chain || currentChain;
       if (!_saved.find(s => s.id===pid && s.chain===pchain)) {
         try {
           const sr = await fetch("/api/saved-positions", { method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id:pid,chain:pchain}) });
           if (sr.ok) _saved = await sr.json();
-        } catch(e) {}
-      }
-      const watched = (_alertSettings.watched_positions || []);
-      if (!watched.find(w => w.position_id===pid && w.chain===pchain)) {
-        try {
-          await fetch("/api/alert-settings/watch", { method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body: JSON.stringify({position_id:pid,chain:pchain}) });
-          const ar = await fetch("/api/alert-settings", { credentials:"same-origin" }); if (ar.ok) _alertSettings = await ar.json();
         } catch(e) {}
       }
     }
