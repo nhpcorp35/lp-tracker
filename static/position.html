@@ -292,6 +292,7 @@
           <button onclick="setChartTab('price')"  id="tab-price"  class="period-btn">Price</button>
           <button onclick="setChartTab('tvl')"    id="tab-tvl"    class="period-btn">TVL</button>
         </div>
+        <div id="pool-health-badges" style="display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;"></div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <div id="volume-hover-info" style="font-family:var(--mono);font-size:11px;color:var(--muted);"></div>
@@ -305,7 +306,6 @@
     </div>
     <canvas id="volume-chart" height="100"></canvas>
   </div>
-
   <div id="range-log-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">⚡ OUT-OF-RANGE LOG</div>
@@ -632,6 +632,38 @@ function renderRangeLog(data) {
 }
 
 
+// ── Pool health badges ────────────────────────────────────────────────────────
+function renderPoolHealthBadges(pos) {
+  const el = document.getElementById("pool-health-badges");
+  if (!el || !pos) return;
+  const days = pos.pool_day_data || [];
+  if (days.length < 6) return;
+
+  function trend(vals) {
+    const recent = (vals[0] + vals[1] + vals[2]) / 3;
+    const older  = (vals[3] + vals[4] + vals[5]) / 3;
+    if (!older || older === 0) return null;
+    return (recent - older) / older * 100;
+  }
+
+  function badge(label, pct) {
+    if (pct == null) return "";
+    const up    = pct > 0;
+    const strong = Math.abs(pct) > 20;
+    const color = up ? (strong ? "#22c55e" : "#86efac") : (strong ? "#f4545c" : "#fca5a5");
+    const arrow = up ? "▲" : "▼";
+    return `<span style="color:var(--muted)">${label}</span> <span style="color:${color}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+  }
+
+  const vols = days.map(d => parseFloat(d.volumeUSD || 0));
+  const tvls = days.map(d => parseFloat(d.tvlUSD || 0));
+  const volTrend = trend(vols);
+  const tvlTrend = trend(tvls);
+
+  const parts = [badge("Vol", volTrend), badge("TVL", tvlTrend)].filter(Boolean);
+  el.innerHTML = parts.map(p => `<span style="padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg)">${p}</span>`).join("");
+}
+
 // ── IL vs Fees Breakeven Calculator ──────────────────────────────────────────
 let _breakevenChart = null;
 function renderBreakeven(pos) {
@@ -907,6 +939,7 @@ async function loadPosition() {
     setStatus(`#${positionId} · ${fmtUsd(_pos.value_usd)} · ${inRangeStr} · updated just now`, "ok");
     showRebalanceSuggestion(_pos);
     renderBreakeven(_pos);
+    renderPoolHealthBadges(_pos);
     // Load volume first so APR comparison chart has pool data
     await loadVolumeChart(_pos.pool_address, chain);
     loadHistory();
