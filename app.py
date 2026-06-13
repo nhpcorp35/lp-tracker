@@ -114,6 +114,10 @@ REBALANCE_FILE = os.environ.get(
     "REBALANCE_FILE",
     os.path.join(_data_dir, "rebalance_tracker.json")
 )
+FEE_COLLECTIONS_FILE = os.environ.get(
+    "FEE_COLLECTIONS_FILE",
+    os.path.join(_data_dir, "fee_collections.json")
+)
 
 
 def _load_saved_positions() -> list:
@@ -1819,6 +1823,53 @@ def _save_rebalances(data: dict):
         app.logger.warning("Could not save rebalance tracker: %s", e)
 
 
+# ── Fee collection detection ──────────────────────────────────────────────────
+
+def _load_fee_collections() -> dict:
+    try:
+        if os.path.exists(FEE_COLLECTIONS_FILE):
+            with open(FEE_COLLECTIONS_FILE) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}  # { pos_id: { "last_fees": float, "collections": [...] } }
+
+
+def _save_fee_collections(data: dict):
+    try:
+        with open(FEE_COLLECTIONS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        app.logger.warning("Could not save fee collections: %s", e)
+
+
+def _check_fee_collection(pos_id: str, chain: str, current_fees: float, value_usd: float):
+    """
+    Detect when uncollected fees drop significantly (collection event).
+    A drop of >50% from the previous snapshot is treated as a collection.
+    """
+    data    = _load_fee_collections()
+    key     = f"{chain}:{pos_id}"
+    entry   = data.get(key, {"last_fees": None, "collections": []})
+    last    = entry.get("last_fees")
+
+    if last is not None and last > 0.10 and current_fees < last * 0.5:
+        collected = round(last - current_fees, 4)
+        event = {
+            "ts":        int(time.time()),
+            "collected": collected,
+            "fees_before": round(last, 4),
+            "fees_after":  round(current_fees, 4),
+            "value_usd":   round(value_usd, 2),
+        }
+        entry.setdefault("collections", []).append(event)
+        app.logger.info("Fee collection detected for %s: $%.2f collected", pos_id, collected)
+
+    entry["last_fees"] = round(current_fees, 4)
+    data[key] = entry
+    _save_fee_collections(data)
+
+
 def _check_rebalance(pos_id: str, chain: str, p: dict):
     """
     Auto-detect rebalances by comparing the current NFT ID to the last known
@@ -2031,6 +2082,8 @@ def _take_snapshot():
                     p.get("price_lower") or 0,
                     p.get("price_upper") or 0,
                 )
+                # Track fee collections (uncollected fees drop)
+                _check_fee_collection(pos_id, chain, fees, value)
                 # Track rebalances (new NFT on same pool)
                 _check_rebalance(pos_id, chain, p)
             except Exception as e:
@@ -2225,6 +2278,18 @@ def get_range_stats(position_id):
         "last_status":  last_status,
         "snapshot_count": len([s for s in snapshots if _in_range_for(s) is not None]),
     })
+
+
+@app.route("/api/fee-collections/<position_id>", methods=["GET"])
+def get_fee_collections(position_id):
+    """Return fee collection history for a position."""
+    chain = request.args.get("chain", "base").strip().lower()
+    data  = _load_fee_collections()
+    key   = f"{chain}:{position_id}"
+    entry = data.get(key, {})
+    collections = sorted(entry.get("collections", []), key=lambda x: x["ts"], reverse=True)
+    total = sum(c["collected"] for c in collections)
+    return jsonify({"collections": collections, "total_collected": round(total, 4), "count": len(collections)})
 
 
 @app.route("/api/rebalances", methods=["GET"])
