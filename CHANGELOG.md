@@ -1,3 +1,34 @@
+## 2026-06-13
+
+### UX / Bug Fixes
+- Fixed in/out-of-range mismatch between portfolio and position pages — portfolio Refresh button now busts cache (`?bust=1`) for live data
+- Replaced Save/Watch dual-button pattern with single `+ Track` / `● Tracking` button — saving a position now auto-watches it server-side
+- Added `/api/saved-positions/sync-watch` endpoint to retroactively watch all saved positions
+- Removed burned position #5268634 from watch list
+
+### Position Page — New Features
+- **Pool Volume / Price / TVL chart**: 3-tab chart (Volume bars, Price line with range bounds overlaid, TVL bars) with 7D/30D/90D/1Y period buttons; 1Y auto-groups into weekly bars
+- **Rebalance suggestion card**: amber alert when out of range showing current price and suggested new range centered on current price using existing range width
+- **IL vs Fees Breakeven Calculator**: shows IL cost, fees earned, net P&L, and days to breakeven at current APR; 90-day projection chart showing cumulative fees vs IL cost line
+- **Fee Collections log**: detects fee collection events in snapshot loop (uncollected fees drop >50%), logs to `fee_collections.json`, shows collection history with before/after and totals
+- **APR comparison**: history APR chart now overlays pool advertised APR (gray dashed) vs your actual earned APR (amber) — gap shows cost of being out of range
+- Volume chart loads before history so APR comparison data is always available
+
+### Portfolio Page — New Features
+- **P&L line** added to portfolio history chart (amber dashed) — value minus deposited capital over time; only appears when entry costs are set via ✏️
+
+### Closed Positions Tab
+- Switched to new `/api/closed-positions` endpoint — flattens all closed cycles with full data
+- Added Win Rate summary card
+- Table now shows value at open → close, price at open → close, range width %, total fees (collected + uncollected)
+
+### Backend
+- Added `token0Price` / `token1Price` to pool-volume subgraph query
+- Added `/api/pool-volume` `days` param (7/30/90/365)
+- Added `/api/fee-collections/<position_id>` endpoint
+- Added `/api/closed-positions` endpoint with totals
+- `add_saved_position` now auto-watches server-side
+
 ## 2026-06-12 (session continued)
 - Fixed Arbitrum screener: replaced broken subgraph IDs (Messari analytics schema / no allocations) with FbCGRftH4a3yZugY7TnbYgPJVEv2LvMT6oF1fxPe9aJM (Uniswap V3 Arbitrum, 40K signal)
 - Fixed Aerodrome screener: GeckoTerminal 403 replaced with multi-source fallback (Goldsky → TheGraph); currently resolving via TheGraph AMM pools entity on GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM
