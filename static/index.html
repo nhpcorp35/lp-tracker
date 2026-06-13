@@ -299,6 +299,17 @@
     </div>
   </div>
 
+  <!-- Position Efficiency Scatter -->
+  <div id="scatter-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">🎯 POSITION EFFICIENCY</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--muted);">Age (days) vs Real APR — bubble size = position value</div>
+    </div>
+    <canvas id="scatter-chart" height="160"></canvas>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:8px;text-align:center;">
+      Top-left = young &amp; high APR (ideal) · Bottom-right = old &amp; low APR (review) · Out-of-range positions shown in red
+    </div>
+  </div>
 
   <div id="range-log-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
@@ -760,6 +771,7 @@ async function loadPortfolio(bust=false) {
   await loadLpEntries();
   renderSummary(_allPositions);
   renderPortfolioTable(_allPositions);
+  renderScatter(_allPositions);
   loadHistory();
   loadRangeEvents(null);
   loadRebalances(null);
@@ -881,6 +893,97 @@ async function loadHistory() {
 }
 
 function reloadCurrentPosition() { loadPortfolio(); }
+
+// ── Position efficiency scatter ───────────────────────────────────────────────
+let _scatterChart = null;
+function renderScatter(positions) {
+  const section = document.getElementById("scatter-section");
+  if (!positions || positions.length < 2) { section.style.display = "none"; return; }
+
+  const now = Date.now() / 1000;
+  const points = positions.map(pos => {
+    const ageDays = pos.entry_timestamp
+      ? Math.max(0, (now - pos.entry_timestamp) / 86400)
+      : null;
+    const apr = pos.in_range ? (pos.apr_estimate ?? pos.advertised_apr) : null;
+    const value = pos.value_usd || 0;
+    const pair = `${pos.token0?.symbol}/${pos.token1?.symbol} #${pos.id}`;
+    return { x: ageDays, y: apr, r: value, pair, inRange: pos.in_range, id: pos.id, chain: pos.chain };
+  }).filter(p => p.x != null && p.y != null && p.y > 0);
+
+  if (!points.length) { section.style.display = "none"; return; }
+  section.style.display = "block";
+
+  // Bubble size: scale value to radius px (min 8, max 28)
+  const maxVal = Math.max(...points.map(p => p.r));
+  const scaled = points.map(p => ({
+    ...p,
+    r: Math.max(8, Math.min(28, (p.r / maxVal) * 28))
+  }));
+
+  if (_scatterChart) _scatterChart.destroy();
+  _scatterChart = new Chart(document.getElementById("scatter-chart"), {
+    type: "bubble",
+    data: {
+      datasets: [{
+        label: "In Range",
+        data: scaled.filter(p => p.inRange).map(p => ({ x: p.x, y: p.y, r: p.r, pair: p.pair, value: p.value, id: p.id, chain: p.chain })),
+        backgroundColor: "rgba(74,158,255,0.55)",
+        borderColor: "rgba(74,158,255,0.9)",
+        borderWidth: 1.5,
+      }, {
+        label: "Out of Range",
+        data: scaled.filter(p => !p.inRange).map(p => ({ x: p.x, y: p.y, r: p.r, pair: p.pair, value: p.value, id: p.id, chain: p.chain })),
+        backgroundColor: "rgba(244,84,92,0.45)",
+        borderColor: "rgba(244,84,92,0.9)",
+        borderWidth: 1.5,
+      }]
+    },
+    options: {
+      responsive: true,
+      onClick: (e, els) => {
+        if (!els.length) return;
+        const pt = e.chart.data.datasets[els[0].datasetIndex].data[els[0].index];
+        if (pt.id && pt.chain) window.location = `/position/${pt.id}?chain=${pt.chain}`;
+      },
+      plugins: {
+        legend: { display: true, labels: { color: "#6b7280", font: { size: 10 }, boxWidth: 10 } },
+        tooltip: {
+          backgroundColor: "rgba(15,20,30,0.95)",
+          titleColor: "#9ca3af",
+          bodyColor: "#e2e8f0",
+          borderColor: "rgba(255,255,255,0.1)",
+          borderWidth: 1,
+          callbacks: {
+            title: items => items[0]?.raw?.pair || "",
+            label: item => {
+              const d = item.raw;
+              return [
+                `Age: ${d.x.toFixed(1)} days`,
+                `APR: +${d.y.toFixed(1)}%`,
+                `Value: ${fmtUsd(d.value ?? 0)}`,
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: "Position Age (days)", color: "#6b7280", font: { size: 10 } },
+          grid: { color: "rgba(255,255,255,0.04)" },
+          ticks: { color: "#6b7280", font: { size: 10 } },
+          min: 0,
+        },
+        y: {
+          title: { display: true, text: "Real APR (%)", color: "#6b7280", font: { size: 10 } },
+          grid: { color: "rgba(255,255,255,0.04)" },
+          ticks: { color: "#6b7280", font: { size: 10 }, callback: v => v + "%" },
+          min: 0,
+        }
+      }
+    }
+  });
+}
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 loadAlertSettings();
