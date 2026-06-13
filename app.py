@@ -2457,6 +2457,7 @@ def get_pool_volume(pool_address):
         return jsonify({"error": f"Unsupported chain: {chain}"}), 400
 
     url   = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
+    days  = min(int(request.args.get("days", 30)), 365)
     query = """
     query($pool: String!, $days: Int!) {
       poolDayDatas(
@@ -2475,7 +2476,7 @@ def get_pool_volume(pool_address):
     try:
         resp = requests.post(
             url,
-            json={"query": query, "variables": {"pool": pool_address.lower(), "days": 30}},
+            json={"query": query, "variables": {"pool": pool_address.lower(), "days": days}},
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}"},
             timeout=10,
         )
