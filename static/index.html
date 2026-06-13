@@ -326,8 +326,8 @@
           <th>Opened</th>
           <th>Closed</th>
           <th>Duration</th>
+          <th>Value</th>
           <th>Range</th>
-          <th>Time in Range</th>
           <th>Fees</th>
           <th>P&L</th>
           <th>Reason</th>
@@ -857,14 +857,104 @@ async function loadClosed() {
   if (_closedLoaded) return;
   _closedLoaded = true;
   try {
-    const res = await fetch('/api/rebalances');
+    const res = await fetch('/api/closed-positions', { credentials:'same-origin' });
     const data = await res.json();
-    renderClosed(data.pools || []);
+    renderClosed(data);
   } catch(e) {
     document.getElementById('closed-tbody').innerHTML =
       `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted)">Failed to load: ${e.message}</td></tr>`;
   }
 }
+
+function fmtDuration(sec) {
+  if (!sec) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function fmtTs(ts) {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'});
+}
+
+function renderClosed(data) {
+  const rows = data.positions || [];
+  const chainLabel = { 'base':'Uni','base-pancake':'Cake','ethereum':'ETH','arbitrum':'ARB' };
+
+  // Summary cards
+  const avgDur = rows.length ? rows.reduce((s,r) => s + (r.duration_sec||0), 0) / rows.length : 0;
+  const winners = rows.filter(r => (r.pnl_usd||0) > 0).length;
+  document.getElementById('closed-count').textContent = `(${rows.length})`;
+  document.getElementById('closed-summary-grid').innerHTML = [
+    ['Closed Positions', rows.length, ''],
+    ['Total P&L', (data.total_pnl >= 0 ? '+' : '') + fmtUsd(data.total_pnl), data.total_pnl >= 0 ? 'var(--green)' : 'var(--red)'],
+    ['Total Fees', fmtUsd(data.total_fees), 'var(--teal)'],
+    ['Avg Duration', fmtDuration(Math.round(avgDur)), ''],
+    ['Win Rate', rows.length ? Math.round(winners/rows.length*100)+'%' : '—', winners/rows.length >= 0.5 ? 'var(--green)' : 'var(--amber)'],
+  ].map(([label, val, color]) => `
+    <div class="closed-summary-card">
+      <div class="closed-summary-label">${label}</div>
+      <div class="closed-summary-value" style="${color ? 'color:' + color : ''}">${val}</div>
+    </div>`).join('');
+
+  if (!rows.length) return;
+
+  document.getElementById('closed-tbody').innerHTML = rows.map(r => {
+    const pair       = `${r.token0_symbol}/${r.token1_symbol}`;
+    const feePct     = ((r.fee_tier||0)/10000).toFixed(2)+'%';
+    const cl         = chainLabel[r.chain] || r.chain;
+    const pnlColor   = (r.pnl_usd||0) >= 0 ? 'var(--green)' : 'var(--red)';
+    const pnlStr     = r.pnl_usd != null ? `<span style="color:${pnlColor}">${r.pnl_usd>=0?'+':''}${fmtUsd(r.pnl_usd)}</span>` : '—';
+    const totalFees  = (r.fees_collected||0) + (r.fees_uncollected||0);
+    const feesStr    = totalFees > 0 ? `<span style="color:var(--teal)">${fmtUsd(totalFees)}</span>` : '—';
+    const reasonColor = r.close_reason === 'rebalanced' ? 'var(--amber)' : 'var(--muted)';
+    const reasonLabel = r.close_reason === 'rebalanced' ? '↻ rebalanced' : '✓ closed';
+
+    // Value change
+    const valOpen  = r.value_at_open;
+    const valClose = r.value_at_close;
+    const valStr   = (valOpen && valClose)
+      ? `<div style="font-family:var(--mono);font-size:11px;color:var(--muted)">${fmtUsd(valOpen)} → ${fmtUsd(valClose)}</div>`
+      : '—';
+
+    // Range
+    let rangeBar = '—';
+    if (r.price_lower && r.price_upper) {
+      const pctWidth = r.price_lower > 0 ? ((r.price_upper - r.price_lower) / r.price_lower * 100).toFixed(1) : '?';
+      rangeBar = `<div style="font-family:var(--mono);font-size:10px;color:var(--muted)">
+        ${fmtPrice(r.price_lower)} – ${fmtPrice(r.price_upper)}
+        <span style="color:var(--muted);font-size:9px"> ±${pctWidth}%</span>
+      </div>`;
+    }
+
+    // Open/close price
+    const priceStr = (r.open_price && r.close_price)
+      ? `<div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${fmtPrice(r.open_price)} → ${fmtPrice(r.close_price)}</div>`
+      : '';
+
+    return `<tr style="cursor:default">
+      <td>
+        <span style="font-weight:600;color:#fff">${pair}</span>
+        <span class="fee-badge" style="font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue);margin-left:4px">${feePct}</span>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${cl}</div>
+      </td>
+      <td style="font-family:var(--mono);color:var(--muted);font-size:11px">#${r.nft_id}</td>
+      <td style="color:var(--muted);font-size:12px">${fmtTs(r.open_ts)}</td>
+      <td style="color:var(--muted);font-size:12px">${fmtTs(r.close_ts)}</td>
+      <td style="font-family:var(--mono);font-size:12px">${fmtDuration(r.duration_sec)}</td>
+      <td>${valStr}${priceStr}</td>
+      <td>${rangeBar}</td>
+      <td>${feesStr}</td>
+      <td>${pnlStr}</td>
+      <td style="font-size:11px;color:${reasonColor}">${reasonLabel}</td>
+    </tr>`;
+  }).join('');
+}
+
 
 function fmtDuration(sec) {
   if (!sec) return '—';
