@@ -2450,7 +2450,7 @@ def privacy():
 
 @app.route("/api/pool-volume/<pool_address>")
 def get_pool_volume(pool_address):
-    """Return last 30 days of daily volume for a pool from the subgraph."""
+    """Return daily volume, fees, TVL, and price data for a pool from the subgraph."""
     chain = request.args.get("chain", "base").strip().lower()
     cfg   = CHAINS.get(chain)
     if not cfg:
@@ -2470,6 +2470,8 @@ def get_pool_volume(pool_address):
         volumeUSD
         feesUSD
         tvlUSD
+        token0Price
+        token1Price
       }
     }
     """
