@@ -257,7 +257,7 @@
       <thead>
         <tr>
           <th>Pair</th><th>Status</th><th>Value</th><th>Fees</th>
-          <th>Pool APR</th><th>P&L</th><th>Range</th><th>Age</th><th></th>
+          <th>Pool APR</th><th>Real APR</th><th>IL</th><th>P&L</th><th>Range</th><th>Age</th><th></th>
         </tr>
       </thead>
       <tbody id="portfolio-tbody"></tbody>
@@ -287,11 +287,15 @@
       <canvas id="apr-chart" height="120"></canvas>
       <canvas id="inrange-chart" height="120"></canvas>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:11px;text-align:center;">
+    <div style="margin-bottom:16px;">
+      <canvas id="daily-fees-chart" height="70"></canvas>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;font-size:11px;text-align:center;">
       <div><div style="color:var(--muted);margin-bottom:2px;">PEAK VALUE</div><div id="hist-peak" style="color:var(--text);font-weight:600;">—</div></div>
       <div><div style="color:var(--muted);margin-bottom:2px;">LOW VALUE</div><div id="hist-low" style="color:var(--text);font-weight:600;">—</div></div>
       <div><div style="color:var(--muted);margin-bottom:2px;">AVG APR</div><div id="hist-avg-apr" style="color:var(--green);font-weight:600;">—</div></div>
       <div><div style="color:var(--muted);margin-bottom:2px;">TIME IN RANGE</div><div id="hist-efficiency" style="color:var(--green);font-weight:600;">—</div></div>
+      <div><div style="color:var(--muted);margin-bottom:2px;">FEES EARNED</div><div id="hist-total-fees" style="color:var(--teal);font-weight:600;">—</div></div>
     </div>
   </div>
 
@@ -668,6 +672,14 @@ function renderPortfolioTable(positions) {
     const aprStr = poolApr != null
       ? `<span style="color:${poolApr>=10?"var(--green)":poolApr>=3?"var(--amber)":"var(--red)"}">${fmtPct(poolApr)}</span>`
       : "—";
+    const realApr = pos.in_range ? pos.apr_estimate : null;
+    const realAprStr = realApr != null
+      ? `<span style="color:${realApr>=10?"var(--green)":realApr>=3?"var(--amber)":"var(--red)"}">${fmtPct(realApr)}</span>`
+      : `<span style="color:var(--muted)">—</span>`;
+    const ilPct = pos.il_pct;
+    const ilStr = ilPct != null
+      ? `<span style="color:${ilPct >= -0.5?"var(--muted)":ilPct >= -2?"var(--amber)":"var(--red)"}">${ilPct.toFixed(2)}%</span>`
+      : `<span style="color:var(--muted)">—</span>`;
     const detailUrl = `/position/${pos.id}?chain=${pos.chain || currentChain}`;
 
     return `<tr class="${pos.in_range?"in-range":"out-of-range"}" onclick="window.location='${detailUrl}'">
@@ -679,6 +691,8 @@ function renderPortfolioTable(positions) {
       <td style="color:#fff;font-weight:500">${fmtUsd(pos.value_usd)}</td>
       <td style="color:#2dd4d0">${fmtUsd(pos.fees_usd)}</td>
       <td>${aprStr}</td>
+      <td>${realAprStr}</td>
+      <td>${ilStr}</td>
       <td>${pnlStr} <button class="entry-edit-btn" onclick="event.stopPropagation();openEntryModal('${pos.id}','${pair}')" title="Set entry">✏️</button></td>
       <td>${buildMiniBar(pos)}</td>
       <td style="color:var(--muted)">${age}</td>
@@ -822,6 +836,36 @@ async function loadHistory() {
       {label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:false,tension:0.3,borderDash:[4,2]},
     ];
     if (pnls) valueDatasets.push({label:"P&L",data:pnls,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.06)",borderWidth:1.5,pointRadius:0,fill:false,tension:0.3,borderDash:[2,2]});
+
+    // Daily fees: diff consecutive total_fees values, group by date
+    const dailyFeeMap = {};
+    for (let i = 1; i < snapshots.length; i++) {
+      const prev = snapshots[i-1], cur = snapshots[i];
+      const diff = (cur.total_fees || 0) - (prev.total_fees || 0);
+      if (diff > 0) {
+        const dateKey = new Date(cur.ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+        dailyFeeMap[dateKey] = (dailyFeeMap[dateKey] || 0) + diff;
+      }
+    }
+    const feeLabels = Object.keys(dailyFeeMap);
+    const feeVals   = Object.values(dailyFeeMap);
+    const totalFeesEarned = feeVals.reduce((s,v) => s+v, 0);
+    document.getElementById("hist-total-fees").textContent = totalFeesEarned > 0 ? fmtUsd(totalFeesEarned) : "—";
+
+    if (window.dailyFeesChart) window.dailyFeesChart.destroy();
+    if (feeLabels.length > 0) {
+      window.dailyFeesChart = new Chart(document.getElementById("daily-fees-chart"), {
+        type: "bar",
+        data: { labels: feeLabels, datasets: [{ label:"Daily Fees", data:feeVals, backgroundColor:"rgba(45,212,191,0.65)", borderColor:"rgba(45,212,191,1)", borderWidth:0, borderRadius:2 }] },
+        options: { ...chartDefaults, plugins: { ...chartDefaults.plugins,
+          title:{display:true,text:"Daily Fees Earned (USD)",color:"#9ca3af",font:{size:11}},
+          legend:{display:false},
+          tooltip:{ backgroundColor:"rgba(15,20,30,0.95)",titleColor:"#9ca3af",bodyColor:"#e2e8f0",borderColor:"rgba(255,255,255,0.1)",borderWidth:1,
+            callbacks:{ label: c => `Fees: ${fmtUsd(c.parsed.y)}` }
+          }
+        }, scales:{ x:{...chartDefaults.scales.x,ticks:{...chartDefaults.scales.x.ticks,maxTicksLimit:10}}, y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>fmtUsd(v)}} } }
+      });
+    }
 
     if (valueChart) valueChart.destroy();
     valueChart = new Chart(document.getElementById("value-chart"), { type:"line", data:{ labels, datasets: valueDatasets },
