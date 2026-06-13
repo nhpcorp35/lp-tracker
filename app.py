@@ -559,6 +559,39 @@ query GetPositions($owner: String!) {
 }
 """
 
+# Some subgraphs (e.g. PancakeSwap) don't support position(id:) singular — use positions(where:{id:}) instead
+POSITION_BY_ID_QUERY_PLURAL = """
+query GetPositionByIdPlural($id: String!) {
+  positions(where: { id: $id }, first: 1) {
+    id
+    owner
+    liquidity
+    tickLower { tickIdx feeGrowthOutside0X128 feeGrowthOutside1X128 }
+    tickUpper { tickIdx feeGrowthOutside0X128 feeGrowthOutside1X128 }
+    feeGrowthInside0LastX128
+    feeGrowthInside1LastX128
+    depositedToken0
+    depositedToken1
+    withdrawnToken0
+    withdrawnToken1
+    collectedFeesToken0
+    collectedFeesToken1
+    pool {
+      id
+      token0 { id symbol name decimals }
+      token1 { id symbol name decimals }
+      feeTier sqrtPrice tick token0Price token1Price
+      feeGrowthGlobal0X128 feeGrowthGlobal1X128
+      volumeUSD totalValueLockedUSD liquidity
+      poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+        date volumeUSD feesUSD tvlUSD
+      }
+    }
+    transaction { timestamp }
+  }
+}
+"""
+
 POSITION_BY_ID_QUERY = """
 query GetPositionById($id: ID!) {
   position(id: $id) {
@@ -637,25 +670,43 @@ def query_subgraph(wallet: str, chain: str = "base") -> list:
 
 
 def query_by_id(position_id: str, chain: str = "base") -> dict | None:
-    """Query The Graph for a single position by token ID."""
+    """Query The Graph for a single position by token ID.
+    Tries singular position(id:) first; falls back to positions(where:{id:}) for
+    subgraphs like PancakeSwap that don't expose the singular query field.
+    """
     cfg = CHAINS.get(chain, CHAINS["base"])
     url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
-    payload = {
-        "query": POSITION_BY_ID_QUERY,
-        "variables": {"id": str(position_id)},
-    }
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {GRAPH_API_KEY}",
     }
     try:
-        r = requests.post(url, json=payload, headers=headers, timeout=15)
+        # Try singular first (Uniswap V3 standard schema)
+        r = requests.post(url, json={
+            "query": POSITION_BY_ID_QUERY,
+            "variables": {"id": str(position_id)},
+        }, headers=headers, timeout=15)
         r.raise_for_status()
         data = r.json()
-        if "errors" in data:
+        if "errors" not in data:
+            return data.get("data", {}).get("position")
+        # Singular failed — check if it's a schema issue and try plural fallback
+        err_msgs = [e.get("message", "") for e in data.get("errors", [])]
+        if any("no field" in m or "unknown field" in m.lower() for m in err_msgs):
+            app.logger.info("Subgraph %s: singular position() unsupported, trying plural fallback", chain)
+            r2 = requests.post(url, json={
+                "query": POSITION_BY_ID_QUERY_PLURAL,
+                "variables": {"id": str(position_id)},
+            }, headers=headers, timeout=15)
+            r2.raise_for_status()
+            data2 = r2.json()
+            if "errors" not in data2:
+                results = data2.get("data", {}).get("positions", [])
+                return results[0] if results else None
+            app.logger.error("Subgraph plural fallback errors: %s", data2["errors"])
+        else:
             app.logger.error("Subgraph errors (by ID): %s", data["errors"])
-            return None
-        return data.get("data", {}).get("position")
+        return None
     except Exception as e:
         app.logger.error("Subgraph query by ID failed: %s", e)
         return None
