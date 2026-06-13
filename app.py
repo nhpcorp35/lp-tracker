@@ -2448,6 +2448,46 @@ def privacy():
 </html>""", 200, {"Content-Type": "text/html"}
 
 
+@app.route("/api/pool-volume/<pool_address>")
+def get_pool_volume(pool_address):
+    """Return last 30 days of daily volume for a pool from the subgraph."""
+    chain = request.args.get("chain", "base").strip().lower()
+    cfg   = CHAINS.get(chain)
+    if not cfg:
+        return jsonify({"error": f"Unsupported chain: {chain}"}), 400
+
+    url   = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
+    query = """
+    query($pool: String!, $days: Int!) {
+      poolDayDatas(
+        first: $days
+        orderBy: date
+        orderDirection: desc
+        where: { pool: $pool }
+      ) {
+        date
+        volumeUSD
+        feesUSD
+        tvlUSD
+      }
+    }
+    """
+    try:
+        resp = requests.post(
+            url,
+            json={"query": query, "variables": {"pool": pool_address.lower(), "days": 30}},
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}"},
+            timeout=10,
+        )
+        data = resp.json().get("data", {}).get("poolDayDatas", [])
+        # Reverse so oldest→newest
+        data = list(reversed(data))
+        return jsonify({"volume": data})
+    except Exception as e:
+        app.logger.error("Pool volume fetch failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/health")
 def health():
     return jsonify({
