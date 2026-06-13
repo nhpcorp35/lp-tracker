@@ -124,6 +124,8 @@
           <th onclick="sortBy('apr')" id="th-apr" class="sorted">APR (7d avg) <span class="sort-arrow">↓</span></th>
           <th onclick="sortBy('tvl_usd')">TVL <span class="sort-arrow">↕</span></th>
           <th onclick="sortBy('avg_daily_vol_usd')">Avg Daily Vol <span class="sort-arrow">↕</span></th>
+          <th onclick="sortBy('vol_trend_pct')">Vol Trend <span class="sort-arrow">↕</span></th>
+          <th onclick="sortBy('tvl_trend_pct')">TVL Trend <span class="sort-arrow">↕</span></th>
           <th onclick="sortBy('vol_tvl_ratio')">Vol/TVL <span class="sort-arrow">↕</span></th>
           <th>Action</th>
         </tr>
@@ -140,6 +142,15 @@ let _pools = [];
 let _sortKey = 'apr';
 let _sortDir = -1;
 let _selectedChain = 'all'; // 'all' or a specific chain key
+
+function trendBadge(pct) {
+  if (pct == null) return '<span style="color:var(--muted);font-size:11px">—</span>';
+  const up = pct > 0;
+  const strong = Math.abs(pct) > 20;
+  const color = up ? (strong ? '#22c55e' : '#86efac') : (strong ? '#f4545c' : '#fca5a5');
+  const arrow = up ? '▲' : '▼';
+  return `<span style="font-family:var(--mono);font-size:11px;color:${color}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+}
 
 function fmtUsd(v) {
   if (v == null) return '—';
@@ -202,6 +213,8 @@ function renderTable() {
       <td><span class="${aprClass}">+${p.apr.toFixed(1)}%</span></td>
       <td style="font-family:var(--mono);font-size:12px">${fmtUsd(p.tvl_usd)}</td>
       <td style="font-family:var(--mono);font-size:12px">${fmtUsd(p.avg_daily_vol_usd)}</td>
+      <td>${trendBadge(p.vol_trend_pct)}</td>
+      <td>${trendBadge(p.tvl_trend_pct)}</td>
       <td style="font-family:var(--mono);font-size:12px">${p.vol_tvl_ratio.toFixed(2)}x</td>
       <td><a href="${uniUrl}" target="_blank" rel="noopener" class="add-btn">View pool →</a></td>
     </tr>`;
