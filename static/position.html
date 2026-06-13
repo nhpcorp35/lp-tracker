@@ -274,8 +274,16 @@
   <!-- Pool Volume Chart -->
   <div id="volume-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">📊 POOL VOLUME (30D)</div>
-      <div id="volume-hover-info" style="font-family:var(--mono);font-size:11px;color:var(--muted);"></div>
+      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">📊 POOL VOLUME</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="volume-hover-info" style="font-family:var(--mono);font-size:11px;color:var(--muted);"></div>
+        <div style="display:flex;gap:4px;">
+          <button onclick="setVolumePeriod('7')"  id="vol-btn-7"   class="period-btn active">7D</button>
+          <button onclick="setVolumePeriod('30')" id="vol-btn-30"  class="period-btn">30D</button>
+          <button onclick="setVolumePeriod('90')" id="vol-btn-90"  class="period-btn">90D</button>
+          <button onclick="setVolumePeriod('365')" id="vol-btn-365" class="period-btn">1Y</button>
+        </div>
+      </div>
     </div>
     <canvas id="volume-chart" height="100"></canvas>
   </div>
@@ -845,22 +853,52 @@ async function loadRangeStatsAndTimeline() {
 
 // ── Pool volume chart ─────────────────────────────────────────────────────────
 let _volumeChart = null;
+let _volumePoolAddress = null;
+let _volumeChain = null;
+let _volumeDays = "7";
+
+function setVolumePeriod(days) {
+  _volumeDays = days;
+  ["7","30","90","365"].forEach(d => {
+    const btn = document.getElementById(`vol-btn-${d}`);
+    if (btn) btn.classList.toggle("active", d === days);
+  });
+  loadVolumeChart(_volumePoolAddress, _volumeChain);
+}
+
 async function loadVolumeChart(poolAddress, chain) {
   if (!poolAddress) return;
+  _volumePoolAddress = poolAddress;
+  _volumeChain = chain;
   const section = document.getElementById("volume-section");
   try {
-    const res  = await fetch(`/api/pool-volume/${poolAddress}?chain=${chain}`, { credentials: "same-origin" });
+    const res  = await fetch(`/api/pool-volume/${poolAddress}?chain=${chain}&days=${_volumeDays}`, { credentials: "same-origin" });
     const data = await res.json();
     const rows = data.volume || [];
     if (!rows.length) return;
     section.style.display = "block";
 
-    const labels  = rows.map(r => {
-      const d = new Date(r.date * 1000);
-      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    });
-    const volumes = rows.map(r => parseFloat(r.volumeUSD));
-    const fees    = rows.map(r => parseFloat(r.feesUSD));
+    // For 1Y, group by week to avoid 365 bars
+    let labels, volumes, fees;
+    if (_volumeDays === "365" && rows.length > 60) {
+      const weeks = [];
+      for (let i = 0; i < rows.length; i += 7) {
+        const chunk = rows.slice(i, i + 7);
+        const d = new Date(chunk[0].date * 1000);
+        weeks.push({
+          label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          vol:   chunk.reduce((s, r) => s + parseFloat(r.volumeUSD), 0),
+          fee:   chunk.reduce((s, r) => s + parseFloat(r.feesUSD), 0),
+        });
+      }
+      labels  = weeks.map(w => w.label);
+      volumes = weeks.map(w => w.vol);
+      fees    = weeks.map(w => w.fee);
+    } else {
+      labels  = rows.map(r => new Date(r.date * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+      volumes = rows.map(r => parseFloat(r.volumeUSD));
+      fees    = rows.map(r => parseFloat(r.feesUSD));
+    }
 
     if (_volumeChart) _volumeChart.destroy();
     const ctx = document.getElementById("volume-chart").getContext("2d");
