@@ -749,9 +749,19 @@ async function loadHistory() {
     const data = await res.json();
     const snapshots = data.snapshots || [];
     const section = document.getElementById("history-section");
-    if (snapshots.length < 2) { section.style.display="none"; return; }
     section.style.display = "block";
     document.getElementById("history-title").textContent = "📈 POSITION HISTORY";
+    if (snapshots.length < 2) {
+      document.getElementById("value-chart").style.display = "none";
+      document.getElementById("apr-chart").style.display = "none";
+      document.getElementById("inrange-chart").style.display = "none";
+      section.querySelector("#history-title").insertAdjacentHTML("afterend",
+        `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:16px 0;">
+          Not enough history yet — snapshots taken hourly.<br>
+          <span style="font-size:11px;">Make sure this position is watched (+ Watch button above).</span>
+        </div>`);
+      return;
+    }
     const labels = snapshots.map(s => new Date(s.ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}));
     const values = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.value:s.total_value; });
     const fees   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.fees:s.total_fees; });
