@@ -316,6 +316,36 @@
 
 
   <!-- Fee Collection Log -->
+  <!-- IL vs Fees Breakeven Calculator -->
+  <div id="breakeven-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">⚖️ IL vs FEES BREAKEVEN</div>
+      <div id="breakeven-status" style="font-family:var(--mono);font-size:12px;"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-bottom:4px;">IMPERMANENT LOSS</div>
+        <div id="be-il" style="font-family:var(--mono);font-size:16px;color:var(--red);">—</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-bottom:4px;">FEES EARNED</div>
+        <div id="be-fees" style="font-family:var(--mono);font-size:16px;color:var(--green);">—</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-bottom:4px;">NET (FEES - IL)</div>
+        <div id="be-net" style="font-family:var(--mono);font-size:16px;">—</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-bottom:4px;">DAYS TO BREAKEVEN</div>
+        <div id="be-days" style="font-family:var(--mono);font-size:16px;">—</div>
+      </div>
+    </div>
+    <canvas id="breakeven-chart" height="80"></canvas>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:8px;text-align:center;">
+      Projection assumes current fee APR and IL remain constant. IL may reduce if price reverts.
+    </div>
+  </div>
+
   <div id="fee-collections-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">💰 FEE COLLECTIONS</div>
@@ -602,6 +632,77 @@ function renderRangeLog(data) {
 }
 
 
+// ── IL vs Fees Breakeven Calculator ──────────────────────────────────────────
+let _breakevenChart = null;
+function renderBreakeven(pos) {
+  const section = document.getElementById("breakeven-section");
+  if (!pos) return;
+
+  const ilPct    = pos.il_pct;       // negative number e.g. -1.73
+  const aprPct   = pos.apr_estimate; // annualised fee APR e.g. 85.3
+  const valueUsd = pos.value_usd || 0;
+  const feesUsd  = pos.uncollected_fees_usd || 0;
+
+  if (ilPct == null || aprPct == null || aprPct <= 0) return;
+  section.style.display = "block";
+
+  const ilUsd    = Math.abs(ilPct / 100 * valueUsd);
+  const dailyFee = aprPct / 100 / 365 * valueUsd;
+  const netUsd   = feesUsd - ilUsd;
+  const daysToBreakeven = ilUsd > feesUsd ? Math.ceil((ilUsd - feesUsd) / dailyFee) : 0;
+
+  document.getElementById("be-il").textContent   = `-${fmtUsd(ilUsd)} (${Math.abs(ilPct).toFixed(2)}%)`;
+  document.getElementById("be-fees").textContent = `+${fmtUsd(feesUsd)}`;
+  const netEl = document.getElementById("be-net");
+  netEl.textContent  = `${netUsd >= 0 ? "+" : ""}${fmtUsd(netUsd)}`;
+  netEl.style.color  = netUsd >= 0 ? "var(--green)" : "var(--red)";
+  const daysEl = document.getElementById("be-days");
+  const statusEl = document.getElementById("breakeven-status");
+  if (daysToBreakeven === 0) {
+    daysEl.textContent = "Already covered ✓";
+    daysEl.style.color = "var(--green)";
+    statusEl.textContent = "Fees have covered IL";
+    statusEl.style.color = "var(--green)";
+  } else {
+    daysEl.textContent = `~${daysToBreakeven}d`;
+    daysEl.style.color = daysToBreakeven < 30 ? "var(--amber)" : "var(--red)";
+    statusEl.textContent = `+${fmtUsd(dailyFee)}/day at ${aprPct.toFixed(1)}% APR`;
+    statusEl.style.color = "var(--muted)";
+  }
+
+  // Projection chart: 90 days
+  const days    = Math.min(Math.max(daysToBreakeven * 2, 30), 120);
+  const labels  = Array.from({length: days + 1}, (_, i) => i === 0 ? "Now" : i % 7 === 0 ? `Day ${i}` : "");
+  const feesCum = Array.from({length: days + 1}, (_, i) => parseFloat((feesUsd + dailyFee * i).toFixed(2)));
+  const ilLine  = Array.from({length: days + 1}, () => parseFloat(ilUsd.toFixed(2)));
+
+  if (_breakevenChart) _breakevenChart.destroy();
+  _breakevenChart = new Chart(document.getElementById("breakeven-chart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "Cumulative Fees", data: feesCum, borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.08)", borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3 },
+        { label: "IL Cost",         data: ilLine,  borderColor: "rgba(244,84,92,0.7)", backgroundColor: "transparent", borderWidth: 1.5, pointRadius: 0, fill: false, borderDash: [4, 3] },
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: true, labels: { color: "#6b7280", font: { size: 10 }, boxWidth: 12 } },
+        tooltip: { backgroundColor: "rgba(15,20,30,0.95)", titleColor: "#9ca3af", bodyColor: "#e2e8f0", borderColor: "rgba(255,255,255,0.1)", borderWidth: 1,
+          callbacks: { label: c => `${c.dataset.label}: ${fmtUsd(c.parsed.y)}` }
+        }
+      },
+      scales: {
+        x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#6b7280", font: { size: 10 }, maxRotation: 0 } },
+        y: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#6b7280", font: { size: 10 }, callback: v => fmtUsd(v) } }
+      }
+    }
+  });
+}
+
 // ── Fee collection log ────────────────────────────────────────────────────────
 async function loadFeeCollections(positionId, chain) {
   try {
@@ -805,6 +906,7 @@ async function loadPosition() {
     const inRangeStr = _pos.in_range ? "in range" : "out of range";
     setStatus(`#${positionId} · ${fmtUsd(_pos.value_usd)} · ${inRangeStr} · updated just now`, "ok");
     showRebalanceSuggestion(_pos);
+    renderBreakeven(_pos);
     // Load volume first so APR comparison chart has pool data
     await loadVolumeChart(_pos.pool_address, chain);
     loadHistory();
