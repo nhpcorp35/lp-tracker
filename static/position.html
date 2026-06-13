@@ -271,6 +271,15 @@
   </div>
 
 
+  <!-- Pool Volume Chart -->
+  <div id="volume-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">📊 POOL VOLUME (30D)</div>
+      <div id="volume-hover-info" style="font-family:var(--mono);font-size:11px;color:var(--muted);"></div>
+    </div>
+    <canvas id="volume-chart" height="100"></canvas>
+  </div>
+
   <div id="range-log-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">⚡ OUT-OF-RANGE LOG</div>
@@ -735,6 +744,7 @@ async function loadPosition() {
     setStatus(`#${positionId} · ${fmtUsd(_pos.value_usd)} · ${inRangeStr} · updated just now`, "ok");
     // Load all detail components
     loadHistory();
+    loadVolumeChart(_pos.pool_address, chain);
     loadRangeStatsAndTimeline();
     loadRangeEvents(positionId);
     const poolKey = `${chain}:${_pos.pool_address}`;
@@ -831,6 +841,89 @@ async function loadRangeStatsAndTimeline() {
     const oldestDate = new Date(windowStart*1000);
     document.getElementById("tir-oldest").textContent = oldestDate.toLocaleDateString("en-US",{month:"short",day:"numeric"});
   } catch(e) {}
+}
+
+// ── Pool volume chart ─────────────────────────────────────────────────────────
+let _volumeChart = null;
+async function loadVolumeChart(poolAddress, chain) {
+  if (!poolAddress) return;
+  const section = document.getElementById("volume-section");
+  try {
+    const res  = await fetch(`/api/pool-volume/${poolAddress}?chain=${chain}`, { credentials: "same-origin" });
+    const data = await res.json();
+    const rows = data.volume || [];
+    if (!rows.length) return;
+    section.style.display = "block";
+
+    const labels  = rows.map(r => {
+      const d = new Date(r.date * 1000);
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    });
+    const volumes = rows.map(r => parseFloat(r.volumeUSD));
+    const fees    = rows.map(r => parseFloat(r.feesUSD));
+
+    if (_volumeChart) _volumeChart.destroy();
+    const ctx = document.getElementById("volume-chart").getContext("2d");
+    _volumeChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{
+          label: "Volume (USD)",
+          data: volumes,
+          backgroundColor: "rgba(139, 92, 246, 0.7)",
+          borderColor: "rgba(139, 92, 246, 1)",
+          borderWidth: 0,
+          borderRadius: 2,
+        }, {
+          label: "Fees (USD)",
+          data: fees,
+          backgroundColor: "rgba(34, 197, 94, 0.8)",
+          borderColor: "rgba(34, 197, 94, 1)",
+          borderWidth: 0,
+          borderRadius: 2,
+          hidden: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y;
+                const s = v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
+                return `${ctx.dataset.label}: ${s}`;
+              },
+              afterBody: items => {
+                if (!items.length) return;
+                const i = items[0].dataIndex;
+                const vol = volumes[i], fee = fees[i];
+                const feeRate = vol > 0 ? (fee/vol*100).toFixed(3) : "0";
+                const hoverEl = document.getElementById("volume-hover-info");
+                if (hoverEl) {
+                  const volFmt = vol >= 1e6 ? `$${(vol/1e6).toFixed(2)}M` : `$${(vol/1e3).toFixed(1)}K`;
+                  const feeFmt = fee >= 1e3 ? `$${(fee/1e3).toFixed(1)}K` : `$${fee.toFixed(0)}`;
+                  hoverEl.textContent = `Vol ${volFmt} · Fees ${feeFmt} · ${feeRate}% rate`;
+                }
+              }
+            },
+            backgroundColor: "rgba(15,20,30,0.95)",
+            titleColor: "#9ca3af",
+            bodyColor: "#e2e8f0",
+            borderColor: "rgba(255,255,255,0.1)",
+            borderWidth: 1,
+          }
+        },
+        scales: {
+          x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#6b7280", font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
+          y: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#6b7280", font: { size: 10 }, callback: v => v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(0)}K` : `$${v}` } }
+        }
+      }
+    });
+  } catch(e) { console.error("Volume chart failed:", e); }
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
