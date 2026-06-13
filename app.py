@@ -712,6 +712,30 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
         return None
 
 
+# ── ETH price cache ───────────────────────────────────────────────────────────
+_eth_price_cache: dict = {"price": 0.0, "ts": 0}
+
+def _get_eth_price_usd() -> float:
+    """Fetch ETH/USD price from CoinGecko with 5-min in-memory cache."""
+    import time
+    now = time.time()
+    if now - _eth_price_cache["ts"] < 300 and _eth_price_cache["price"] > 0:
+        return _eth_price_cache["price"]
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "ethereum", "vs_currencies": "usd"},
+            timeout=5,
+        )
+        price = float(r.json()["ethereum"]["usd"])
+        _eth_price_cache["price"] = price
+        _eth_price_cache["ts"] = now
+        return price
+    except Exception as e:
+        app.logger.warning("ETH price fetch failed: %s", e)
+        return _eth_price_cache.get("price", 0.0)
+
+
 # ── Position enrichment ───────────────────────────────────────────────────────
 
 def enrich_position(pos: dict, chain: str = "base") -> dict:
@@ -797,9 +821,24 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         price1_usd = float(pool.get("token0Price") or 0)
         price0_usd = 1.0
     else:
-        # Neither is a stable (e.g. WETH/wstETH) — use token0Price as ratio
-        price0_usd = 0.0
-        price1_usd = 0.0
+        # Neither token is a stablecoin — try to anchor to ETH price
+        # e.g. WETH/cbBTC, CAKE/WETH, WETH/wstETH
+        eth_syms = {"WETH", "ETH", "WETH.E"}
+        eth_usd = _get_eth_price_usd()
+        t0_sym = t0["symbol"].upper()
+        t1_sym = t1["symbol"].upper()
+        if t1_sym in eth_syms:
+            # token1 = WETH; token1_per_token0 = ETH per t0 → price0_usd = ratio * eth_usd
+            price1_usd = eth_usd
+            price0_usd = token1_per_token0 * eth_usd
+        elif t0_sym in eth_syms:
+            # token0 = WETH; token0Price = token0 per token1
+            price0_usd = eth_usd
+            price1_usd = float(pool.get("token0Price") or 0) * eth_usd
+        else:
+            # Truly unknown pair — $0
+            price0_usd = 0.0
+            price1_usd = 0.0
 
     value_usd = amt0 * price0_usd + amt1 * price1_usd
     fees_usd  = fee0 * price0_usd + fee1 * price1_usd
