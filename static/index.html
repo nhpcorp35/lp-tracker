@@ -905,7 +905,9 @@ function renderScatter(positions) {
     const ageDays = pos.entry_timestamp
       ? Math.max(0, (now - pos.entry_timestamp) / 86400)
       : null;
-    const apr = pos.in_range ? (pos.apr_estimate ?? pos.advertised_apr) : null;
+    const apr = pos.in_range
+      ? (pos.apr_estimate ?? pos.advertised_apr)
+      : (pos.advertised_apr ?? pos.apr_estimate); // show pool APR for OOR positions
     const value = pos.value_usd || 0;
     const pair = `${pos.token0?.symbol}/${pos.token1?.symbol} #${pos.id}`;
     return { x: ageDays, y: apr, r: value, pair, inRange: pos.in_range, id: pos.id, chain: pos.chain };
