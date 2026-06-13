@@ -1,3 +1,23 @@
+## 2026-06-13 (continued)
+
+### Pool Health Indicators
+- **Screener**: added Vol Trend and TVL Trend sortable columns — ▲/▼ % comparing last 3 days avg vs prior 3 days; color-coded (dark green >20% up, light green <20%, light red <20% down, dark red >20% down)
+- **Position page**: pool health Vol/TVL trend badges in volume chart header using position's poolDayData (no extra API call)
+- Added `pool_day_data` (7 days) to enriched position API response
+- Added `vol_trend_pct` and `tvl_trend_pct` to both screener parse functions (Aerodrome and multi-chain)
+
+### Position Efficiency Scatter Chart
+- Added 🎯 POSITION EFFICIENCY scatter to portfolio page between history and out-of-range log
+- X axis = position age in days, Y axis = real APR (in-range only), bubble size = position value
+- Blue bubbles = in range, red = out of range; clicking a bubble navigates to that position's detail page
+- Hint text: top-left (young + high APR) = ideal, bottom-right (old + low APR) = review
+
+### Bug Fix
+- Fixed NFT #2039597 appearing in spurious USDC/VVV pool group in rebalance tracker
+- Added guard in `_check_rebalance` to skip NFTs already active in another pool group (prevents bad subgraph data from creating ghost pool entries)
+- Added `/api/rebalances/cleanup` endpoint to remove zero-duration/zero-fee pool groups
+- Manually removed ghost entry `base:0x67a11...` from rebalance_tracker.json via Railway console
+
 ## 2026-06-13
 
 ### UX / Bug Fixes
