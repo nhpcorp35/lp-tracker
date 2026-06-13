@@ -1100,7 +1100,25 @@ def get_position_by_id(position_id):
 
         def try_chain(c):
             try:
-                return c, query_by_id(position_id, c)
+                raw = query_by_id(position_id, c)
+                if not raw:
+                    return c, None
+                # Validate: confirm this position ID exists on this chain's NPM contract.
+                # Different chains share NFT ID spaces so the wrong subgraph can return a hit.
+                npm_address = CHAINS.get(c, {}).get("npm")
+                rpc = CHAINS.get(c, {}).get("rpc")
+                if npm_address and rpc:
+                    try:
+                        w3 = Web3(Web3.HTTPProvider(rpc))
+                        npm = w3.eth.contract(
+                            address=Web3.to_checksum_address(npm_address),
+                            abi=NPM_ABI,
+                        )
+                        npm.functions.positions(int(position_id)).call()
+                    except Exception:
+                        app.logger.info("Auto-detect: position #%s not on %s NPM, skipping", position_id, c)
+                        return c, None
+                return c, raw
             except Exception:
                 return c, None
 
