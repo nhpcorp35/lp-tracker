@@ -1508,6 +1508,13 @@ def add_saved_position():
     if not any(s["id"] == pos_id and s["chain"] == chain for s in saved):
         saved.append({"id": pos_id, "chain": chain})
         _save_saved_positions(saved)
+    # Auto-watch so snapshots are taken for this position
+    settings = _load_alert_settings()
+    watched  = settings.get("watched_positions", [])
+    if not any(w["position_id"] == pos_id and w["chain"] == chain for w in watched):
+        watched.append({"position_id": pos_id, "chain": chain})
+        settings["watched_positions"] = watched
+        _save_alert_settings(settings)
     return jsonify(saved)
 
 
@@ -2130,6 +2137,22 @@ def force_snapshot():
     _take_snapshot()
     snapshots = _load_snapshots()
     return jsonify({"ok": True, "total_snapshots": len(snapshots)})
+
+
+@app.route("/api/saved-positions/sync-watch", methods=["POST"])
+def sync_watch():
+    """Ensure all saved positions are also in the watch list."""
+    saved    = _load_saved_positions()
+    settings = _load_alert_settings()
+    watched  = settings.get("watched_positions", [])
+    added = 0
+    for s in saved:
+        if not any(w["position_id"] == s["id"] and w["chain"] == s["chain"] for w in watched):
+            watched.append({"position_id": s["id"], "chain": s["chain"]})
+            added += 1
+    settings["watched_positions"] = watched
+    _save_alert_settings(settings)
+    return jsonify({"ok": True, "added": added, "total_watched": len(watched)})
 
 
 # ── Range events API ─────────────────────────────────────────────────────────
