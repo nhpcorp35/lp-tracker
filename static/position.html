@@ -271,16 +271,34 @@
   </div>
 
 
+  <!-- Rebalance Suggestion -->
+  <div id="rebalance-suggestion" style="display:none;border:1px solid rgba(245,158,11,0.3);background:rgba(245,158,11,0.06);border-radius:12px;padding:16px 20px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--amber);letter-spacing:0.04em;">⚠ OUT OF RANGE</div>
+        <div id="rebalance-suggestion-text" style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:4px;"></div>
+      </div>
+      <div id="rebalance-suggestion-range" style="font-family:var(--mono);font-size:12px;color:var(--text);text-align:right;"></div>
+    </div>
+  </div>
+
   <!-- Pool Volume Chart -->
   <div id="volume-section" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-      <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">📊 POOL VOLUME</div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">📊 POOL VOLUME</div>
+        <div style="display:flex;gap:4px;">
+          <button onclick="setChartTab('volume')" id="tab-volume" class="period-btn active">Volume</button>
+          <button onclick="setChartTab('price')"  id="tab-price"  class="period-btn">Price</button>
+          <button onclick="setChartTab('tvl')"    id="tab-tvl"    class="period-btn">TVL</button>
+        </div>
+      </div>
       <div style="display:flex;align-items:center;gap:10px;">
         <div id="volume-hover-info" style="font-family:var(--mono);font-size:11px;color:var(--muted);"></div>
         <div style="display:flex;gap:4px;">
-          <button onclick="setVolumePeriod('7')"  id="vol-btn-7"   class="period-btn active">7D</button>
-          <button onclick="setVolumePeriod('30')" id="vol-btn-30"  class="period-btn">30D</button>
-          <button onclick="setVolumePeriod('90')" id="vol-btn-90"  class="period-btn">90D</button>
+          <button onclick="setVolumePeriod('7')"   id="vol-btn-7"   class="period-btn active">7D</button>
+          <button onclick="setVolumePeriod('30')"  id="vol-btn-30"  class="period-btn">30D</button>
+          <button onclick="setVolumePeriod('90')"  id="vol-btn-90"  class="period-btn">90D</button>
           <button onclick="setVolumePeriod('365')" id="vol-btn-365" class="period-btn">1Y</button>
         </div>
       </div>
@@ -750,6 +768,7 @@ async function loadPosition() {
     updateSaveBtn();
     const inRangeStr = _pos.in_range ? "in range" : "out of range";
     setStatus(`#${positionId} · ${fmtUsd(_pos.value_usd)} · ${inRangeStr} · updated just now`, "ok");
+    showRebalanceSuggestion(_pos);
     // Load all detail components
     loadHistory();
     loadVolumeChart(_pos.pool_address, chain);
@@ -851,11 +870,13 @@ async function loadRangeStatsAndTimeline() {
   } catch(e) {}
 }
 
-// ── Pool volume chart ─────────────────────────────────────────────────────────
+// ── Pool volume / price / TVL chart ──────────────────────────────────────────
 let _volumeChart = null;
 let _volumePoolAddress = null;
 let _volumeChain = null;
 let _volumeDays = "7";
+let _chartTab = "volume";
+let _volumeData = null; // cached raw rows
 
 function setVolumePeriod(days) {
   _volumeDays = days;
@@ -866,102 +887,157 @@ function setVolumePeriod(days) {
   loadVolumeChart(_volumePoolAddress, _volumeChain);
 }
 
+function setChartTab(tab) {
+  _chartTab = tab;
+  ["volume","price","tvl"].forEach(t => {
+    const btn = document.getElementById(`tab-${t}`);
+    if (btn) btn.classList.toggle("active", t === tab);
+  });
+  if (_volumeData) renderVolumeChart(_volumeData);
+}
+
+function _groupByWeek(rows, field) {
+  const weeks = [];
+  for (let i = 0; i < rows.length; i += 7) {
+    const chunk = rows.slice(i, i + 7);
+    const d = new Date(chunk[0].date * 1000);
+    weeks.push({
+      label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      value: field === "token0Price"
+        ? chunk.reduce((s, r) => s + parseFloat(r[field] || 0), 0) / chunk.length
+        : chunk.reduce((s, r) => s + parseFloat(r[field] || 0), 0),
+    });
+  }
+  return weeks;
+}
+
+function renderVolumeChart(rows) {
+  const use1Y = _volumeDays === "365" && rows.length > 60;
+  let labels, values, color, label, chartType, yFmt;
+
+  if (_chartTab === "volume") {
+    const grouped = use1Y ? _groupByWeek(rows, "volumeUSD") : null;
+    labels = grouped ? grouped.map(w => w.label) : rows.map(r => new Date(r.date*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}));
+    values = grouped ? grouped.map(w => w.value) : rows.map(r => parseFloat(r.volumeUSD||0));
+    color = "rgba(139,92,246,0.75)"; label = "Volume (USD)"; chartType = "bar";
+    yFmt = v => v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(0)}K` : `$${v}`;
+  } else if (_chartTab === "price") {
+    labels = rows.map(r => new Date(r.date*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}));
+    values = rows.map(r => parseFloat(r.token0Price||0));
+    color = "rgba(74,158,255,0.9)"; label = "Price"; chartType = "line";
+    // figure out reasonable decimals from the range
+    const mx = Math.max(...values.filter(Boolean));
+    yFmt = v => mx > 1000 ? `$${v.toLocaleString("en-US",{maximumFractionDigits:0})}` : mx > 1 ? `$${v.toFixed(2)}` : `$${v.toPrecision(4)}`;
+  } else {
+    const grouped = use1Y ? null : null; // TVL: just daily
+    labels = rows.map(r => new Date(r.date*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}));
+    values = rows.map(r => parseFloat(r.tvlUSD||0));
+    color = "rgba(34,197,94,0.75)"; label = "TVL (USD)"; chartType = "bar";
+    yFmt = v => v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(0)}K` : `$${v}`;
+  }
+
+  // Draw range bands on price chart
+  const priceAnnotations = {};
+  if (_chartTab === "price" && _pos) {
+    const lower = _pos.price_lower, upper = _pos.price_upper;
+    if (lower && upper) {
+      priceAnnotations.lowerBand = { type:"line", yMin:lower, yMax:lower, borderColor:"rgba(244,84,92,0.5)", borderWidth:1, borderDash:[4,3], label:{display:true,content:`Lower $${lower.toLocaleString()}`,position:"start",color:"rgba(244,84,92,0.8)",font:{size:10}} };
+      priceAnnotations.upperBand = { type:"line", yMin:upper, yMax:upper, borderColor:"rgba(244,84,92,0.5)", borderWidth:1, borderDash:[4,3], label:{display:true,content:`Upper $${upper.toLocaleString()}`,position:"start",color:"rgba(244,84,92,0.8)",font:{size:10}} };
+    }
+  }
+
+  if (_volumeChart) _volumeChart.destroy();
+  const ctx = document.getElementById("volume-chart").getContext("2d");
+  _volumeChart = new Chart(ctx, {
+    type: chartType,
+    data: {
+      labels,
+      datasets: [{
+        label,
+        data: values,
+        backgroundColor: chartType === "line" ? color.replace("0.9","0.1") : color,
+        borderColor: color.replace("0.75","1").replace("0.9","1"),
+        borderWidth: chartType === "line" ? 2 : 0,
+        borderRadius: chartType === "bar" ? 2 : 0,
+        pointRadius: 0,
+        fill: chartType === "line",
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: c => `${c.dataset.label}: ${yFmt(c.parsed.y)}`,
+            afterBody: items => {
+              if (!items.length) return;
+              const i = items[0].dataIndex;
+              const hoverEl = document.getElementById("volume-hover-info");
+              if (hoverEl) {
+                if (_chartTab === "volume") {
+                  const fee = parseFloat(rows[i]?.feesUSD||0);
+                  const vol = values[i];
+                  const rate = vol > 0 ? (fee/vol*100).toFixed(3) : "0";
+                  const feeFmt = fee >= 1e3 ? `$${(fee/1e3).toFixed(1)}K` : `$${fee.toFixed(0)}`;
+                  hoverEl.textContent = `Fees ${feeFmt} · ${rate}% rate`;
+                } else {
+                  hoverEl.textContent = yFmt(values[i]);
+                }
+              }
+            }
+          },
+          backgroundColor:"rgba(15,20,30,0.95)",titleColor:"#9ca3af",bodyColor:"#e2e8f0",borderColor:"rgba(255,255,255,0.1)",borderWidth:1,
+        }
+      },
+      scales: {
+        x: { grid:{color:"rgba(255,255,255,0.04)"}, ticks:{color:"#6b7280",font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:10} },
+        y: { grid:{color:"rgba(255,255,255,0.04)"}, ticks:{color:"#6b7280",font:{size:10},callback:yFmt} }
+      }
+    }
+  });
+}
+
 async function loadVolumeChart(poolAddress, chain) {
   if (!poolAddress) return;
   _volumePoolAddress = poolAddress;
   _volumeChain = chain;
   const section = document.getElementById("volume-section");
   try {
-    const res  = await fetch(`/api/pool-volume/${poolAddress}?chain=${chain}&days=${_volumeDays}`, { credentials: "same-origin" });
+    const res  = await fetch(`/api/pool-volume/${poolAddress}?chain=${chain}&days=${_volumeDays}`, { credentials:"same-origin" });
     const data = await res.json();
     const rows = data.volume || [];
     if (!rows.length) return;
+    _volumeData = rows;
     section.style.display = "block";
-
-    // For 1Y, group by week to avoid 365 bars
-    let labels, volumes, fees;
-    if (_volumeDays === "365" && rows.length > 60) {
-      const weeks = [];
-      for (let i = 0; i < rows.length; i += 7) {
-        const chunk = rows.slice(i, i + 7);
-        const d = new Date(chunk[0].date * 1000);
-        weeks.push({
-          label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-          vol:   chunk.reduce((s, r) => s + parseFloat(r.volumeUSD), 0),
-          fee:   chunk.reduce((s, r) => s + parseFloat(r.feesUSD), 0),
-        });
-      }
-      labels  = weeks.map(w => w.label);
-      volumes = weeks.map(w => w.vol);
-      fees    = weeks.map(w => w.fee);
-    } else {
-      labels  = rows.map(r => new Date(r.date * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }));
-      volumes = rows.map(r => parseFloat(r.volumeUSD));
-      fees    = rows.map(r => parseFloat(r.feesUSD));
-    }
-
-    if (_volumeChart) _volumeChart.destroy();
-    const ctx = document.getElementById("volume-chart").getContext("2d");
-    _volumeChart = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [{
-          label: "Volume (USD)",
-          data: volumes,
-          backgroundColor: "rgba(139, 92, 246, 0.7)",
-          borderColor: "rgba(139, 92, 246, 1)",
-          borderWidth: 0,
-          borderRadius: 2,
-        }, {
-          label: "Fees (USD)",
-          data: fees,
-          backgroundColor: "rgba(34, 197, 94, 0.8)",
-          borderColor: "rgba(34, 197, 94, 1)",
-          borderWidth: 0,
-          borderRadius: 2,
-          hidden: true,
-        }]
-      },
-      options: {
-        responsive: true,
-        interaction: { mode: "index", intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: ctx => {
-                const v = ctx.parsed.y;
-                const s = v >= 1e6 ? `$${(v/1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
-                return `${ctx.dataset.label}: ${s}`;
-              },
-              afterBody: items => {
-                if (!items.length) return;
-                const i = items[0].dataIndex;
-                const vol = volumes[i], fee = fees[i];
-                const feeRate = vol > 0 ? (fee/vol*100).toFixed(3) : "0";
-                const hoverEl = document.getElementById("volume-hover-info");
-                if (hoverEl) {
-                  const volFmt = vol >= 1e6 ? `$${(vol/1e6).toFixed(2)}M` : `$${(vol/1e3).toFixed(1)}K`;
-                  const feeFmt = fee >= 1e3 ? `$${(fee/1e3).toFixed(1)}K` : `$${fee.toFixed(0)}`;
-                  hoverEl.textContent = `Vol ${volFmt} · Fees ${feeFmt} · ${feeRate}% rate`;
-                }
-              }
-            },
-            backgroundColor: "rgba(15,20,30,0.95)",
-            titleColor: "#9ca3af",
-            bodyColor: "#e2e8f0",
-            borderColor: "rgba(255,255,255,0.1)",
-            borderWidth: 1,
-          }
-        },
-        scales: {
-          x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#6b7280", font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
-          y: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#6b7280", font: { size: 10 }, callback: v => v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(0)}K` : `$${v}` } }
-        }
-      }
-    });
+    renderVolumeChart(rows);
   } catch(e) { console.error("Volume chart failed:", e); }
+}
+
+// ── Rebalance suggestion ──────────────────────────────────────────────────────
+function showRebalanceSuggestion(pos) {
+  if (!pos || pos.in_range) return;
+  const el = document.getElementById("rebalance-suggestion");
+  const txt = document.getElementById("rebalance-suggestion-text");
+  const rng = document.getElementById("rebalance-suggestion-range");
+  if (!el || !pos.current_price) return;
+
+  const price = pos.current_price;
+  const width = pos.price_upper && pos.price_lower
+    ? (pos.price_upper - pos.price_lower) / pos.price_lower
+    : 0.15;
+  const half = width / 2;
+  const newLower = price * (1 - half);
+  const newUpper = price * (1 + half);
+
+  const fmt = p => p >= 1000 ? `$${p.toLocaleString("en-US",{maximumFractionDigits:0})}`
+    : p >= 1 ? `$${p.toFixed(2)}` : `$${p.toPrecision(4)}`;
+
+  txt.textContent = `Current price ${fmt(price)} is outside your range. Suggested rebalance:`;
+  rng.innerHTML = `<div style="color:var(--green)">${fmt(newLower)} – ${fmt(newUpper)}</div><div style="color:var(--muted);font-size:10px;">±${(half*100).toFixed(1)}% width · centered on current price</div>`;
+  el.style.display = "block";
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
