@@ -768,7 +768,7 @@ async function addPosition() {
   const btn = document.getElementById("load-btn");
   btn.disabled = true; btn.textContent = "Adding…";
   try {
-    const url = isPositionId ? `/api/position/${input}?chain=auto` : `/api/positions?wallet=${encodeURIComponent(input)}&chain=all`;
+    const url = isPositionId ? `/api/position/${input}?chain=${currentChain}` : `/api/positions?wallet=${encodeURIComponent(input)}&chain=all`;
     const res = await fetch(url, { credentials:"same-origin" });
     const data = await res.json();
     const positions = data.positions || [];
