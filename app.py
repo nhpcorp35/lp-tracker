@@ -225,7 +225,8 @@ def _fetch_positions_for_wallet(wallet_address: str, chain: str) -> list:
     return resp.json().get("data", {}).get("positions", [])
 
 
-
+def _load_range_events() -> dict:
+    """Load range events from disk."""
     try:
         if os.path.exists(RANGE_EVENTS_FILE):
             with open(RANGE_EVENTS_FILE) as f:
