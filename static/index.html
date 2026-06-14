@@ -176,9 +176,26 @@
     <button class="btn" id="load-btn" onclick="addPosition()">Add</button>
   </div>
   <button class="btn btn-sm" onclick="refreshAll()" id="refresh-btn">↻ Refresh</button>
+  <button class="btn btn-sm" onclick="toggleWalletPanel()" id="wallet-btn">👛 Wallets</button>
   <button class="btn btn-sm" onclick="toggleAlertPanel()" id="alert-btn">🔔 Alerts</button>
 </header>
 
+<div id="wallet-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:12px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.04em;">👛 SAVED WALLETS</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-sm" onclick="scanWallets()" id="scan-wallets-btn">↻ Scan Now</button>
+      <span id="wallet-scan-status" style="font-family:var(--mono);font-size:11px;color:var(--muted);"></span>
+    </div>
+  </div>
+  <div id="wallet-list" style="margin-bottom:12px;font-family:var(--mono);font-size:12px;"></div>
+  <div style="display:flex;gap:8px;">
+    <input type="text" id="wallet-addr-input" placeholder="0x... wallet address" class="wallet-input" style="flex:1" autocomplete="off" spellcheck="false">
+    <input type="text" id="wallet-label-input" placeholder="Label (optional)" class="wallet-input" style="max-width:150px" autocomplete="off" spellcheck="false">
+    <button class="btn btn-sm" onclick="saveWallet()">+ Save</button>
+  </div>
+  <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:8px;">Saved wallets are scanned hourly for new positions automatically.</div>
+</div>
 
 <div class="alert-panel" id="alert-panel">
   <div class="alert-panel-header">
@@ -810,6 +827,13 @@ async function addPosition() {
       }
     }
     document.getElementById("wallet-input").value = "";
+    // Auto-save wallet address for future auto-scanning
+    if (isWallet) {
+      try {
+        await fetch("/api/wallets", { method:"POST", credentials:"same-origin",
+          headers:{"Content-Type":"application/json"}, body: JSON.stringify({address: input, label:""}) });
+      } catch(e) {}
+    }
     await loadPortfolio();
   } catch(e) { showError("Error: " + e.message); }
   btn.disabled = false; btn.textContent = "Add";
@@ -893,6 +917,91 @@ async function loadHistory() {
 }
 
 function reloadCurrentPosition() { loadPortfolio(); }
+
+// ── Wallet management ─────────────────────────────────────────────────────────
+let _wallets = [];
+
+function toggleWalletPanel() {
+  const panel = document.getElementById("wallet-panel");
+  const isOpen = panel.style.display !== "none";
+  panel.style.display = isOpen ? "none" : "block";
+  if (!isOpen) loadWallets();
+}
+
+async function loadWallets() {
+  try {
+    const res = await fetch("/api/wallets", { credentials: "same-origin" });
+    _wallets = res.ok ? await res.json() : [];
+    renderWalletList();
+  } catch(e) {}
+}
+
+function renderWalletList() {
+  const el = document.getElementById("wallet-list");
+  if (!_wallets.length) {
+    el.innerHTML = `<div style="color:var(--muted);padding:8px 0;">No saved wallets yet.</div>`;
+    return;
+  }
+  el.innerHTML = _wallets.map(w => {
+    const added = new Date(w.added_at * 1000).toLocaleDateString("en-US", {month:"short", day:"numeric"});
+    const label = w.label ? `<span style="color:var(--text)">${w.label}</span> · ` : "";
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
+      <div>${label}<span style="color:var(--muted)">${w.address.slice(0,6)}…${w.address.slice(-4)}</span> <span style="color:var(--muted);font-size:10px">added ${added}</span></div>
+      <button onclick="removeWallet('${w.address}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 6px;" title="Remove">✕</button>
+    </div>`;
+  }).join("");
+}
+
+async function saveWallet() {
+  const address = document.getElementById("wallet-addr-input").value.trim();
+  const label   = document.getElementById("wallet-label-input").value.trim();
+  if (!address.startsWith("0x") || address.length !== 42) {
+    document.getElementById("wallet-scan-status").textContent = "Invalid address";
+    return;
+  }
+  document.getElementById("wallet-scan-status").textContent = "Saving…";
+  try {
+    const res = await fetch("/api/wallets", {
+      method: "POST", credentials: "same-origin",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({address, label})
+    });
+    _wallets = await res.json();
+    renderWalletList();
+    document.getElementById("wallet-addr-input").value = "";
+    document.getElementById("wallet-label-input").value = "";
+    document.getElementById("wallet-scan-status").textContent = "Saved — scanning for positions…";
+    setTimeout(() => { document.getElementById("wallet-scan-status").textContent = ""; loadPortfolio(); }, 3000);
+  } catch(e) {
+    document.getElementById("wallet-scan-status").textContent = "Error: " + e.message;
+  }
+}
+
+async function removeWallet(address) {
+  try {
+    const res = await fetch(`/api/wallets/${address}`, { method: "DELETE", credentials: "same-origin" });
+    _wallets = await res.json();
+    renderWalletList();
+  } catch(e) {}
+}
+
+async function scanWallets() {
+  const statusEl = document.getElementById("wallet-scan-status");
+  statusEl.textContent = "Scanning…";
+  document.getElementById("scan-wallets-btn").disabled = true;
+  try {
+    const res  = await fetch("/api/wallets/scan", { method: "POST", credentials: "same-origin" });
+    const data = await res.json();
+    statusEl.textContent = data.added > 0
+      ? `Found ${data.added} new position${data.added !== 1 ? "s" : ""}!`
+      : "No new positions found.";
+    if (data.added > 0) await loadPortfolio();
+  } catch(e) {
+    statusEl.textContent = "Scan failed.";
+  }
+  document.getElementById("scan-wallets-btn").disabled = false;
+  setTimeout(() => { statusEl.textContent = ""; }, 5000);
+}
 
 // ── Position efficiency scatter ───────────────────────────────────────────────
 let _scatterChart = null;
