@@ -47,6 +47,7 @@ GRAPH_API_KEY  = os.environ.get("GRAPH_API_KEY", "")
 ALCHEMY_BASE   = os.environ.get("ALCHEMY_BASE_URL", "")
 ALCHEMY_ETH    = os.environ.get("ALCHEMY_ETH_URL", "")
 ALCHEMY_ARB    = os.environ.get("ALCHEMY_ARB_URL", "")
+HYPEREVM_RPC   = "https://rpc.hyperliquid.xyz/evm"
 
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
 
@@ -288,6 +289,14 @@ CHAINS = {
         "rpc":         ALCHEMY_ARB,
         "npm":         "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     },
+    "hyperevm": {
+        "name":        "HyperEVM (ProjectX)",
+        "subgraph_id": None,
+        "rpc":         HYPEREVM_RPC,
+        "npm":         "0x575E8014ecAA57b0C94992D11DdfEd404190C9f8",
+        "factory":     "0x233D9067677dCf1a161954D45B4C965B9d567168",
+        "rpc_only":    True,
+    },
 }
 
 Q96  = 2 ** 96
@@ -416,6 +425,151 @@ NPM_ABI = [
         "type": "function",
     },
 ]
+
+ERC20_ABI_MIN = [
+    {"inputs": [], "name": "symbol",   "outputs": [{"type": "string"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "decimals", "outputs": [{"type": "uint8"}],  "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "name",     "outputs": [{"type": "string"}], "stateMutability": "view", "type": "function"},
+]
+
+FACTORY_ABI_MIN = [
+    {
+        "inputs": [
+            {"internalType": "address", "name": "tokenA", "type": "address"},
+            {"internalType": "address", "name": "tokenB", "type": "address"},
+            {"internalType": "uint24",  "name": "fee",    "type": "uint24"},
+        ],
+        "name": "getPool",
+        "outputs": [{"internalType": "address", "name": "pool", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+POOL_SLOT0_ABI = [
+    {
+        "inputs": [],
+        "name": "slot0",
+        "outputs": [
+            {"internalType": "uint160", "name": "sqrtPriceX96",   "type": "uint160"},
+            {"internalType": "int24",   "name": "tick",           "type": "int24"},
+            {"internalType": "uint16",  "name": "observationIndex","type": "uint16"},
+            {"internalType": "uint16",  "name": "observationCardinality","type": "uint16"},
+            {"internalType": "uint16",  "name": "observationCardinalityNext","type": "uint16"},
+            {"internalType": "uint8",   "name": "feeProtocol",    "type": "uint8"},
+            {"internalType": "bool",    "name": "unlocked",       "type": "bool"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {"inputs": [], "name": "liquidity", "outputs": [{"internalType": "uint128", "name": "", "type": "uint128"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "token0",    "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "token1",    "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "fee",       "outputs": [{"internalType": "uint24",  "name": "", "type": "uint24"}],  "stateMutability": "view", "type": "function"},
+]
+
+_token_cache: dict = {}
+
+def _get_token_info(address: str, w3) -> dict:
+    addr = address.lower()
+    if addr in _token_cache:
+        return _token_cache[addr]
+    try:
+        tok = w3.eth.contract(address=Web3.to_checksum_address(address), abi=ERC20_ABI_MIN)
+        info = {
+            "id":       address.lower(),
+            "symbol":   tok.functions.symbol().call(),
+            "decimals": str(tok.functions.decimals().call()),
+            "name":     tok.functions.name().call(),
+        }
+        _token_cache[addr] = info
+        return info
+    except Exception as e:
+        app.logger.warning("ERC20 info fetch failed for %s: %s", address, e)
+        return {"id": address.lower(), "symbol": "???", "decimals": "18", "name": "Unknown"}
+
+
+def fetch_position_hyperevm(position_id: str) -> dict | None:
+    """Fetch a ProjectX/HyperEVM position from on-chain RPC. Returns subgraph-compatible dict."""
+    try:
+        cfg = CHAINS["hyperevm"]
+        w3  = Web3(Web3.HTTPProvider(cfg["rpc"]))
+        npm = w3.eth.contract(address=Web3.to_checksum_address(cfg["npm"]), abi=NPM_ABI)
+        pos_data = npm.functions.positions(int(position_id)).call()
+        token0_addr = pos_data[2]
+        token1_addr = pos_data[3]
+        fee         = pos_data[4]
+        tick_lower  = pos_data[5]
+        tick_upper  = pos_data[6]
+        liquidity   = pos_data[7]
+        fg0_last    = pos_data[8]
+        fg1_last    = pos_data[9]
+        owed0       = pos_data[10]
+        owed1       = pos_data[11]
+
+        if liquidity == 0 and owed0 == 0 and owed1 == 0:
+            app.logger.info("HyperEVM position #%s has zero liquidity", position_id)
+            return None
+
+        factory   = w3.eth.contract(address=Web3.to_checksum_address(cfg["factory"]), abi=FACTORY_ABI_MIN)
+        pool_addr = factory.functions.getPool(
+            Web3.to_checksum_address(token0_addr),
+            Web3.to_checksum_address(token1_addr),
+            fee,
+        ).call()
+
+        pool_contract = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=POOL_ABI + POOL_SLOT0_ABI)
+        slot0        = pool_contract.functions.slot0().call()
+        sqrt_price   = slot0[0]
+        tick_current = slot0[1]
+        fg0          = pool_contract.functions.feeGrowthGlobal0X128().call()
+        fg1          = pool_contract.functions.feeGrowthGlobal1X128().call()
+        lower_ticks  = pool_contract.functions.ticks(tick_lower).call()
+        upper_ticks  = pool_contract.functions.ticks(tick_upper).call()
+
+        t0   = _get_token_info(token0_addr, w3)
+        t1   = _get_token_info(token1_addr, w3)
+        dec0 = int(t0["decimals"])
+        dec1 = int(t1["decimals"])
+
+        sp                = int(sqrt_price) / (2 ** 96)
+        raw_price         = sp ** 2
+        token1_per_token0 = raw_price * (10 ** dec0) / (10 ** dec1)
+        token0_per_token1 = 1 / token1_per_token0 if token1_per_token0 else 0
+
+        return {
+            "id":        str(position_id),
+            "liquidity": str(liquidity),
+            "tickLower": {"tickIdx": str(tick_lower), "feeGrowthOutside0X128": str(lower_ticks[2]), "feeGrowthOutside1X128": str(lower_ticks[3])},
+            "tickUpper": {"tickIdx": str(tick_upper), "feeGrowthOutside0X128": str(upper_ticks[2]), "feeGrowthOutside1X128": str(upper_ticks[3])},
+            "feeGrowthInside0LastX128": str(fg0_last),
+            "feeGrowthInside1LastX128": str(fg1_last),
+            "_tokens_owed0": owed0,
+            "_tokens_owed1": owed1,
+            "depositedToken0": "0",
+            "depositedToken1": "0",
+            "withdrawnToken0": "0",
+            "withdrawnToken1": "0",
+            "collectedFeesToken0": "0",
+            "collectedFeesToken1": "0",
+            "transaction": {"timestamp": "0"},
+            "pool": {
+                "id":                   pool_addr.lower(),
+                "feeTier":              str(fee),
+                "tick":                 str(tick_current),
+                "sqrtPrice":            str(sqrt_price),
+                "feeGrowthGlobal0X128": str(fg0),
+                "feeGrowthGlobal1X128": str(fg1),
+                "token0Price":          str(token0_per_token1),
+                "token1Price":          str(token1_per_token0),
+                "token0": t0,
+                "token1": t1,
+            },
+        }
+    except Exception as e:
+        app.logger.error("fetch_position_hyperevm #%s failed: %s", position_id, e)
+        return None
+
 
 # ── Uniswap V3 math ───────────────────────────────────────────────────────────
 
@@ -763,10 +917,15 @@ def query_subgraph(wallet: str, chain: str = "base") -> list:
 
 def query_by_id(position_id: str, chain: str = "base") -> dict | None:
     """Query The Graph for a single position by token ID.
+    For RPC-only chains (e.g. hyperevm), fetches directly from on-chain contracts.
     Tries singular position(id:) first; falls back to positions(where:{id:}) for
     subgraphs like PancakeSwap that don't expose the singular query field.
     """
     cfg = CHAINS.get(chain, CHAINS["base"])
+    if cfg.get("rpc_only"):
+        if chain == "hyperevm":
+            return fetch_position_hyperevm(position_id)
+        return None
     url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
     headers = {
         "Content-Type": "application/json",
