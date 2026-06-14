@@ -1,3 +1,18 @@
+## 2026-06-14
+
+### lp-tracker
+
+**Multi-wallet support & auto-scan**
+- Added `saved_wallets.json` on Railway volume to persist wallet addresses
+- New 👛 Wallets panel in header: save/remove wallets with optional labels, manual scan button
+- Background thread scans all saved wallets hourly, auto-adds any new open positions found
+- Wallet addresses auto-saved when added via the main add bar
+- New API routes: `GET/POST /api/wallets`, `DELETE /api/wallets/<address>`, `POST /api/wallets/scan`
+
+**Bug fixes**
+- NFT ID add now uses `chain=auto` — no longer requires correct chain filter to be selected
+- Scatter chart fixed to show out-of-range positions using advertised APR
+
 ## 2026-06-13 (continued)
 
 ### Pool Health Indicators
