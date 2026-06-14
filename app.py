@@ -105,6 +105,10 @@ SAVED_POSITIONS_FILE = os.environ.get(
     "SAVED_POSITIONS_FILE",
     os.path.join(_data_dir, "saved_positions.json")
 )
+SAVED_WALLETS_FILE = os.environ.get(
+    "SAVED_WALLETS_FILE",
+    os.path.join(_data_dir, "saved_wallets.json")
+)
 RANGE_EVENTS_FILE = os.environ.get(
     "RANGE_EVENTS_FILE",
     os.path.join(_data_dir, "range_events.json")
@@ -118,6 +122,8 @@ FEE_COLLECTIONS_FILE = os.environ.get(
     "FEE_COLLECTIONS_FILE",
     os.path.join(_data_dir, "fee_collections.json")
 )
+
+WALLET_SCAN_INTERVAL = int(os.environ.get("WALLET_SCAN_INTERVAL", "3600"))  # seconds, default 1hr
 
 
 def _load_saved_positions() -> list:
@@ -138,7 +144,88 @@ def _save_saved_positions(positions: list):
         app.logger.warning("Could not save saved positions: %s", e)
 
 
-def _load_range_events() -> dict:
+def _load_saved_wallets() -> list:
+    """Returns list of {address, label, added_at}"""
+    try:
+        if os.path.exists(SAVED_WALLETS_FILE):
+            with open(SAVED_WALLETS_FILE) as f:
+                return json.load(f)
+    except Exception as e:
+        app.logger.warning("Could not load saved wallets: %s", e)
+    return []
+
+
+def _save_saved_wallets(wallets: list):
+    try:
+        with open(SAVED_WALLETS_FILE, "w") as f:
+            json.dump(wallets, f, indent=2)
+    except Exception as e:
+        app.logger.warning("Could not save saved wallets: %s", e)
+
+
+def _scan_wallet_for_new_positions(wallet_address: str) -> int:
+    """
+    Scan a wallet across all chains for positions not yet tracked.
+    Returns count of newly added positions.
+    """
+    added = 0
+    saved = _load_saved_positions()
+    existing_ids = {s["id"] for s in saved}
+    settings = _load_alert_settings()
+    watched = settings.get("watched_positions", [])
+
+    for chain_key, cfg in CHAINS.items():
+        try:
+            positions = _fetch_positions_for_wallet(wallet_address, chain_key)
+            for p in positions:
+                pos_id = str(p.get("id", ""))
+                if not pos_id or pos_id in existing_ids:
+                    continue
+                # Only add open positions (non-zero liquidity)
+                if not p.get("liquidity") or int(p.get("liquidity", 0)) == 0:
+                    continue
+                saved.append({"id": pos_id, "chain": chain_key})
+                existing_ids.add(pos_id)
+                # Auto-watch
+                if not any(w["position_id"] == pos_id and w["chain"] == chain_key for w in watched):
+                    watched.append({"position_id": pos_id, "chain": chain_key})
+                added += 1
+                app.logger.info("Auto-added position %s on %s from wallet %s", pos_id, chain_key, wallet_address[:10])
+        except Exception as e:
+            app.logger.warning("Wallet scan error for %s on %s: %s", wallet_address[:10], chain_key, e)
+
+    if added:
+        _save_saved_positions(saved)
+        settings["watched_positions"] = watched
+        _save_alert_settings(settings)
+
+    return added
+
+
+def _fetch_positions_for_wallet(wallet_address: str, chain: str) -> list:
+    """Fetch all LP positions for a wallet on a given chain."""
+    cfg = CHAINS.get(chain)
+    if not cfg:
+        return []
+    url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
+    query = """
+    query($owner: String!) {
+      positions(where: { owner: $owner }, first: 100) {
+        id
+        liquidity
+      }
+    }
+    """
+    resp = requests.post(
+        url,
+        json={"query": query, "variables": {"owner": wallet_address.lower()}},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}"},
+        timeout=10,
+    )
+    return resp.json().get("data", {}).get("positions", [])
+
+
+
     try:
         if os.path.exists(RANGE_EVENTS_FILE):
             with open(RANGE_EVENTS_FILE) as f:
@@ -2254,6 +2341,49 @@ def sync_watch():
     return jsonify({"ok": True, "added": added, "total_watched": len(watched)})
 
 
+# ── Wallet management ─────────────────────────────────────────────────────────
+
+@app.route("/api/wallets", methods=["GET"])
+def get_wallets():
+    return jsonify(_load_saved_wallets())
+
+
+@app.route("/api/wallets", methods=["POST"])
+def add_wallet():
+    body    = request.get_json(silent=True) or {}
+    address = str(body.get("address", "")).strip().lower()
+    label   = str(body.get("label", "")).strip()
+    if not address or not address.startswith("0x") or len(address) != 42:
+        return jsonify({"error": "Invalid wallet address"}), 400
+    wallets = _load_saved_wallets()
+    if any(w["address"] == address for w in wallets):
+        return jsonify(wallets)  # already saved
+    wallets.append({"address": address, "label": label, "added_at": int(time.time())})
+    _save_saved_wallets(wallets)
+    # Immediate scan for new positions
+    threading.Thread(target=_scan_wallet_for_new_positions, args=(address,), daemon=True).start()
+    return jsonify(wallets)
+
+
+@app.route("/api/wallets/<address>", methods=["DELETE"])
+def remove_wallet(address):
+    wallets = [w for w in _load_saved_wallets() if w["address"] != address.lower()]
+    _save_saved_wallets(wallets)
+    return jsonify(wallets)
+
+
+@app.route("/api/wallets/scan", methods=["POST"])
+def scan_wallets():
+    """Manually trigger a rescan of all saved wallets."""
+    wallets = _load_saved_wallets()
+    if not wallets:
+        return jsonify({"ok": True, "added": 0, "message": "No saved wallets"})
+    total = 0
+    for w in wallets:
+        total += _scan_wallet_for_new_positions(w["address"])
+    return jsonify({"ok": True, "added": total, "wallets_scanned": len(wallets)})
+
+
 @app.route("/api/rebalances/cleanup", methods=["POST"])
 def cleanup_rebalances():
     """Remove pool groups with no valid cycles (spurious entries from bad subgraph data)."""
@@ -2673,9 +2803,33 @@ def health():
     })
 
 
+def _wallet_scan_loop():
+    """Background thread: periodically re-scan all saved wallets for new positions."""
+    import time as _time
+    _time.sleep(60)  # wait 60s after startup before first scan
+    while True:
+        try:
+            wallets = _load_saved_wallets()
+            if wallets:
+                total_added = 0
+                for w in wallets:
+                    n = _scan_wallet_for_new_positions(w["address"])
+                    total_added += n
+                if total_added:
+                    app.logger.info("Wallet scan complete: %d new positions added.", total_added)
+                else:
+                    app.logger.info("Wallet scan complete: no new positions found.")
+        except Exception as e:
+            app.logger.warning("Wallet scan loop error: %s", e)
+        _time.sleep(WALLET_SCAN_INTERVAL)
+
+
 if __name__ == "__main__":
     # Start background alert polling thread
     _alert_thread = threading.Thread(target=_alert_poll_loop, daemon=True)
     _alert_thread.start()
+    # Start background wallet scan thread
+    _wallet_scan_thread = threading.Thread(target=_wallet_scan_loop, daemon=True)
+    _wallet_scan_thread.start()
     app.run(host="0.0.0.0", port=5001, debug=False)
 
