@@ -293,7 +293,7 @@ CHAINS = {
         "name":        "HyperEVM (ProjectX)",
         "subgraph_id": None,
         "rpc":         HYPEREVM_RPC,
-        "npm":         "0x575E8014ecAA57b0C94992D11DdfEd404190C9f8",
+        "npm":         "0xeaD19AE861c29bBb2101E834922B2FEee69B9091",
         "factory":     "0x233D9067677dCf1a161954D45B4C965B9d567168",
         "rpc_only":    True,
     },
