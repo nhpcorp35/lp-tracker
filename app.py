@@ -1593,7 +1593,7 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
     Returns list of pool dicts in same format as subgraph screener results.
     """
     # tickSpacing → fee tier decimal mapping for Aerodrome Slipstream
-    TICK_FEE = {1: 0.0001, 50: 0.0005, 100: 0.003, 200: 0.01}
+    TICK_FEE = {1: 0.0001, 50: 0.0005, 100: 0.003, 200: 0.01, 2000: 0.000334}
 
     def _parse_pools(pools_data, fee_field="feeTier"):
         results = []
