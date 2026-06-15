@@ -793,7 +793,7 @@ query GetPositions($owner: String!) {
       volumeUSD
       totalValueLockedUSD
       liquidity
-      poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+      poolDayData(first: 8, orderBy: date, orderDirection: desc) {
         date
         volumeUSD
         feesUSD
@@ -829,7 +829,7 @@ query GetPositionByIdPlural($id: String!) {
       feeTier sqrtPrice tick token0Price token1Price
       feeGrowthGlobal0X128 feeGrowthGlobal1X128
       volumeUSD totalValueLockedUSD liquidity
-      poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+      poolDayData(first: 8, orderBy: date, orderDirection: desc) {
         date volumeUSD feesUSD tvlUSD
       }
     }
@@ -876,7 +876,7 @@ query GetPositionById($id: ID!) {
       volumeUSD
       totalValueLockedUSD
       liquidity
-      poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+      poolDayData(first: 8, orderBy: date, orderDirection: desc) {
         date
         volumeUSD
         feesUSD
@@ -1624,14 +1624,15 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
             avg_vol = sum(float(d.get("volumeUSD", 0)) for d in day_data) / max(len(day_data), 1)
             vol_tvl = avg_vol / tvl if tvl > 0 else 0
 
-            # Trend: compare most recent 3 days vs prior 3 days
+            # Trend: compare most recent 3 completed days vs prior 3 days
+            # Skip vols[0] (today) — subgraph day bucket is still open/partial
             vols = [float(d.get("volumeUSD", 0)) for d in day_data]
             tvls = [float(d.get("tvlUSD") or tvl) for d in day_data]
-            # day_data is newest-first; recent = [0:3], older = [3:6]
-            vol_recent = sum(vols[:3]) / 3 if len(vols) >= 3 else None
-            vol_older  = sum(vols[3:6]) / 3 if len(vols) >= 6 else None
-            tvl_recent = sum(tvls[:3]) / 3 if len(tvls) >= 3 else None
-            tvl_older  = sum(tvls[3:6]) / 3 if len(tvls) >= 6 else None
+            # day_data is newest-first; [0]=today(partial), [1:4]=recent complete, [4:7]=older
+            vol_recent = sum(vols[1:4]) / 3 if len(vols) >= 4 else None
+            vol_older  = sum(vols[4:7]) / 3 if len(vols) >= 7 else None
+            tvl_recent = sum(tvls[1:4]) / 3 if len(tvls) >= 4 else None
+            tvl_older  = sum(tvls[4:7]) / 3 if len(tvls) >= 7 else None
             vol_trend_pct = round((vol_recent - vol_older) / vol_older * 100, 1) if vol_older and vol_older > 0 else None
             tvl_trend_pct = round((tvl_recent - tvl_older) / tvl_older * 100, 1) if tvl_older and tvl_older > 0 else None
 
@@ -1668,7 +1669,7 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
             volumeUSD
             token0 { symbol }
             token1 { symbol }
-            poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+            poolDayData(first: 8, orderBy: date, orderDirection: desc) {
               date
               volumeUSD
               feesUSD
@@ -1746,7 +1747,7 @@ def api_screener():
         volumeUSD
         token0 { symbol }
         token1 { symbol }
-        poolDayData(first: 7, orderBy: date, orderDirection: desc) {
+        poolDayData(first: 8, orderBy: date, orderDirection: desc) {
           date
           volumeUSD
           feesUSD
@@ -1793,10 +1794,10 @@ def api_screener():
                 vol_tvl = avg_vol / tvl if tvl > 0 else 0
                 vols = [float(d.get("volumeUSD", 0)) for d in day_data]
                 tvls = [float(d.get("tvlUSD") or tvl) for d in day_data]
-                vol_recent = sum(vols[:3]) / 3 if len(vols) >= 3 else None
-                vol_older  = sum(vols[3:6]) / 3 if len(vols) >= 6 else None
-                tvl_recent = sum(tvls[:3]) / 3 if len(tvls) >= 3 else None
-                tvl_older  = sum(tvls[3:6]) / 3 if len(tvls) >= 6 else None
+                vol_recent = sum(vols[1:4]) / 3 if len(vols) >= 4 else None
+                vol_older  = sum(vols[4:7]) / 3 if len(vols) >= 7 else None
+                tvl_recent = sum(tvls[1:4]) / 3 if len(tvls) >= 4 else None
+                tvl_older  = sum(tvls[4:7]) / 3 if len(tvls) >= 7 else None
                 vol_trend_pct = round((vol_recent - vol_older) / vol_older * 100, 1) if vol_older and vol_older > 0 else None
                 tvl_trend_pct = round((tvl_recent - tvl_older) / tvl_older * 100, 1) if tvl_older and tvl_older > 0 else None
                 chain_results.append({
