@@ -294,7 +294,7 @@ CHAINS = {
         "subgraph_id": None,
         "rpc":         HYPEREVM_RPC,
         "npm":         "0xeaD19AE861c29bBb2101E834922B2FEee69B9091",
-        "factory":     "0x233D9067677dCf1a161954D45B4C965B9d567168",
+        "factory":     "0xFf7B3e8C00e57ea31477c32A5B52a58Eea47b072",
         "rpc_only":    True,
     },
 }
