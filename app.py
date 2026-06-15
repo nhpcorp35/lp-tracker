@@ -965,6 +965,27 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
 
 # ── ETH price cache ───────────────────────────────────────────────────────────
 _eth_price_cache: dict = {"price": 0.0, "ts": 0}
+_hype_price_cache: dict = {"price": 0.0, "ts": 0}
+
+def _get_hype_price_usd() -> float:
+    """Fetch HYPE/USD price from CoinGecko with 5-min in-memory cache."""
+    import time
+    now = time.time()
+    if now - _hype_price_cache["ts"] < 300 and _hype_price_cache["price"] > 0:
+        return _hype_price_cache["price"]
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "hyperliquid", "vs_currencies": "usd"},
+            timeout=5,
+        )
+        price = float(r.json()["hyperliquid"]["usd"])
+        _hype_price_cache["price"] = price
+        _hype_price_cache["ts"] = now
+        return price
+    except Exception as e:
+        app.logger.warning("HYPE price fetch failed: %s", e)
+        return _hype_price_cache.get("price", 0.0)
 
 def _get_eth_price_usd() -> float:
     """Fetch ETH/USD price from CoinGecko with 5-min in-memory cache."""
@@ -1074,8 +1095,10 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
     else:
         # Neither token is a stablecoin — try to anchor to ETH price
         # e.g. WETH/cbBTC, CAKE/WETH, WETH/wstETH
-        eth_syms = {"WETH", "ETH", "WETH.E"}
-        eth_usd = _get_eth_price_usd()
+        eth_syms  = {"WETH", "ETH", "WETH.E"}
+        hype_syms = {"WHYPE", "HYPE"}
+        eth_usd   = _get_eth_price_usd()
+        hype_usd  = _get_hype_price_usd()
         t0_sym = t0["symbol"].upper()
         t1_sym = t1["symbol"].upper()
         if t1_sym in eth_syms:
@@ -1086,6 +1109,12 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
             # token0 = WETH; token0Price = token0 per token1
             price0_usd = eth_usd
             price1_usd = float(pool.get("token0Price") or 0) * eth_usd
+        elif t1_sym in hype_syms:
+            price1_usd = hype_usd
+            price0_usd = token1_per_token0 * hype_usd
+        elif t0_sym in hype_syms:
+            price0_usd = hype_usd
+            price1_usd = float(pool.get("token0Price") or 0) * hype_usd
         else:
             # Truly unknown pair — $0
             price0_usd = 0.0
