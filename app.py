@@ -924,7 +924,10 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
     cfg = CHAINS.get(chain, CHAINS["base"])
     if cfg.get("rpc_only"):
         if chain == "hyperevm":
-            return fetch_position_hyperevm(position_id)
+            pos = fetch_position_hyperevm(position_id)
+            if pos is not None:
+                pos["_chain"] = chain
+            return pos
         return None
     url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
     headers = {
@@ -1207,10 +1210,41 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
             )
             il_pct = round(il * 100, 2)
 
+    # ── PnL / entry loading ────────────────────────────────────────────────
+    # Load lp_entries early so auto-record and IL fallback can both use it.
+    lp_entries  = _load_lp_entries()
+    pos_id_str  = str(pos["id"])
+    manual_entry = lp_entries.get(pos_id_str)
+
+    # Auto-record entry snapshot for RPC-only chains (HyperEVM etc.) on first
+    # scan — subgraph fields (depositedToken0/1, transaction.timestamp) are
+    # always 0 for these positions, so we capture entry data ourselves.
+    chain_key   = pos.get("_chain", "")
+    is_rpc_only = CHAINS.get(chain_key, {}).get("rpc_only", False)
+    if is_rpc_only and manual_entry is None and value_usd > 0:
+        auto_entry = {
+            "entry_usd":  round(value_usd, 4),
+            "entry_amt0": round(amt0, 8),
+            "entry_amt1": round(amt1, 8),
+            "entry_time": int(time.time()),
+            "auto":       True,
+        }
+        lp_entries[pos_id_str] = auto_entry
+        _save_lp_entries(lp_entries)
+        manual_entry = auto_entry
+        app.logger.info("Auto-recorded entry for RPC-only pos %s: $%.2f", pos_id_str, value_usd)
+
+    # IL fallback: use lp_entries amounts when subgraph deposited amounts are zero
+    if il_pct is None and manual_entry and t1_is_stable:
+        e_amt0 = float(manual_entry.get("entry_amt0") or 0)
+        e_amt1 = float(manual_entry.get("entry_amt1") or 0)
+        if e_amt0 > 0 and e_amt1 > 0:
+            entry_price = e_amt1 / e_amt0
+            il = calculate_il(amt0, amt1, e_amt0, e_amt1, token1_per_token0, entry_price)
+            il_pct = round(il * 100, 2)
+
     # ── PnL (vs deposited) ─────────────────────────────────────────────────
     # Try manual entry first (set via ✏️ button), fall back to subgraph deposit data.
-    lp_entries = _load_lp_entries()
-    manual_entry = lp_entries.get(str(pos["id"]))
     manual_entry_usd = float(manual_entry["entry_usd"]) if manual_entry and "entry_usd" in manual_entry else None
 
     deposit_usd = manual_entry_usd
@@ -1247,7 +1281,8 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
 
     # ── Real APR: annualized actual P&L (fees + IL + price change) ────────
     real_apr = None
-    entry_ts = int(pos["transaction"]["timestamp"]) if pos.get("transaction") else None
+    _raw_ts  = int(pos["transaction"]["timestamp"]) if pos.get("transaction") else 0
+    entry_ts = _raw_ts or (int(manual_entry["entry_time"]) if manual_entry and manual_entry.get("entry_time") else None)
     if pnl_pct is not None and entry_ts:
         age_days = (time.time() - entry_ts) / 86400
         if age_days >= 1:
@@ -1291,7 +1326,7 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         # Status
         "in_range":        in_range,
         "liquidity":       pos.get("liquidity"),
-        "entry_timestamp": int(pos["transaction"]["timestamp"]) if pos.get("transaction") else None,
+        "entry_timestamp": entry_ts,
 
         # History
         "collected_fees_token0": collected_fees0_raw,
@@ -3021,4 +3056,5 @@ if __name__ == "__main__":
     _wallet_scan_thread = threading.Thread(target=_wallet_scan_loop, daemon=True)
     _wallet_scan_thread.start()
     app.run(host="0.0.0.0", port=5001, debug=False)
+
 
