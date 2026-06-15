@@ -1610,8 +1610,10 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
                 fee_decimal = TICK_FEE.get(tick_spacing, tick_spacing / 1_000_000)
                 fee_raw = int(fee_decimal * 1_000_000)
             day_data = p.get("poolDayData", [])
+            # Skip day_data[0] (today's partial bucket) for all calculations
+            complete_days = day_data[1:] if len(day_data) > 1 else day_data
             daily_aprs = []
-            for d in day_data:
+            for d in complete_days:
                 d_vol = float(d.get("volumeUSD", 0))
                 d_tvl = float(d.get("tvlUSD") or tvl)
                 if d_vol > 0 and d_tvl > 0:
@@ -1621,7 +1623,7 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
             apr = sum(daily_aprs) / len(daily_aprs)
             if apr < min_apr:
                 continue
-            avg_vol = sum(float(d.get("volumeUSD", 0)) for d in day_data) / max(len(day_data), 1)
+            avg_vol = sum(float(d.get("volumeUSD", 0)) for d in complete_days) / max(len(complete_days), 1)
             vol_tvl = avg_vol / tvl if tvl > 0 else 0
 
             # Trend: compare most recent 3 completed days vs prior 3 days
@@ -1779,8 +1781,10 @@ def api_screener():
                     continue
                 day_data = p.get("poolDayData", [])
                 fee_tier_decimal = fee_tier / 1_000_000
+                # Skip day_data[0] (today's partial bucket) for all calculations
+                complete_days = day_data[1:] if len(day_data) > 1 else day_data
                 daily_aprs = []
-                for d in day_data:
+                for d in complete_days:
                     d_vol = float(d.get("volumeUSD", 0))
                     d_tvl = float(d.get("tvlUSD") or tvl)
                     if d_vol > 0 and d_tvl > 0:
@@ -1790,7 +1794,7 @@ def api_screener():
                 apr = sum(daily_aprs) / len(daily_aprs)
                 if apr < min_apr:
                     continue
-                avg_vol = sum(float(d.get("volumeUSD", 0)) for d in day_data) / max(len(day_data), 1)
+                avg_vol = sum(float(d.get("volumeUSD", 0)) for d in complete_days) / max(len(complete_days), 1)
                 vol_tvl = avg_vol / tvl if tvl > 0 else 0
                 vols = [float(d.get("volumeUSD", 0)) for d in day_data]
                 tvls = [float(d.get("tvlUSD") or tvl) for d in day_data]
