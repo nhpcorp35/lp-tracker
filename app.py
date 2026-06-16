@@ -1465,6 +1465,8 @@ def get_position_by_id(position_id):
                     return c, None
                 # Validate: confirm this position ID exists on this chain's NPM contract.
                 # Different chains share NFT ID spaces so the wrong subgraph can return a hit.
+                # Exception: wrapped positions (MaxFi/Snuggle) burn the NFT so NPM returns
+                # Invalid token ID — if subgraph has liquidity > 0, accept it anyway.
                 npm_address = CHAINS.get(c, {}).get("npm")
                 rpc = CHAINS.get(c, {}).get("rpc")
                 if npm_address and rpc:
@@ -1476,7 +1478,12 @@ def get_position_by_id(position_id):
                         )
                         npm.functions.positions(int(position_id)).call()
                     except Exception:
-                        app.logger.info("Auto-detect: position #%s not on %s NPM, skipping", position_id, c)
+                        # NPM failed — only accept if subgraph shows active liquidity
+                        liquidity = int(raw.get("liquidity", 0))
+                        if liquidity > 0:
+                            app.logger.info("Auto-detect: position #%s NPM failed on %s but subgraph liquidity=%s, accepting", position_id, c, liquidity)
+                            return c, raw
+                        app.logger.info("Auto-detect: position #%s not on %s NPM and zero liquidity, skipping", position_id, c)
                         return c, None
                 return c, raw
             except Exception:
