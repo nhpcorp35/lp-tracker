@@ -1,3 +1,14 @@
+## 2026-06-16
+
+### Fixed
+- **Data file routing** — All position data files now correctly read/write to Railway volume at /data (LP_ENTRIES_FILE and ALERT_SETTINGS_FILE env vars confirmed pointing to /data).
+- **Watched positions cleanup** — Removed closed/zero-liquidity positions from alert_settings.json and saved_positions.json; corrected chain assignments for MaxFi/Snuggle wrapped positions.
+- **Auto-detect wrapped NFTs** — When NPM returns Invalid token ID but subgraph shows liquidity > 0, auto-detect now accepts the position (fixes MaxFi/Snuggle/PancakeSwap wrapped NFT positions).
+- **Rollback to stable base** — Reverted to commit 814ff84c to restore Base/Cake subgraph fetching after tickSpacing query changes broke Uni/Cake subgraphs.
+
+### Added
+- **New positions** — Added 2042283 (CAKE/WETH), 2042120 (WETH/cbBTC), 5345155 (WETH/USDC) to watched positions.
+
 ## 2026-06-14
 
 ### lp-tracker
