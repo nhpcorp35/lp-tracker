@@ -1,3 +1,15 @@
+## 2026-06-16 (session 2)
+
+### Fixed
+- **Price display inversion** — Pairs where token1_per_token0 < 1.0 now show inverted human-readable prices (USDC/cbBTC shows $60k-$66k, WETH/cbBTC shows $36-$38, Cake/WETH shows $1,147-$1,293).
+- **Screener vol/TVL trend** — Now uses complete_days (skips today partial bucket), indices corrected to 0:3 / 3:6.
+- **Watched positions cleanup** — Removed all closed/zero-liquidity positions from both data files.
+
+### Added
+- **CL-{tickSpacing} badges** — Purple badges on portfolio rows, position detail header, and screener rows for Base/Cake chains.
+- **New positions** — 2042283 (Cake/WETH Snuggle), 2042120 (WETH/cbBTC Snuggle), 5345155 (WETH/USDC Uni Base).
+- **Backfill snapshot** — One historical snapshot added to seed position history charts.
+
 ## 2026-06-16
 
 ### Fixed
