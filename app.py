@@ -1289,13 +1289,15 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
             real_apr = (pnl_pct / 100) / (age_days / 365) * 100
 
     # ── Price display inversion ───────────────────────────────────────────
-    # When token0 is a stablecoin (e.g. USDC/cbBTC), price is quoted as
-    # cbBTC-per-USDC which gives tiny numbers. Invert to show USD-per-token1.
+    # When price is tiny (< 0.01), the pair is quoted in the wrong direction
+    # for human readability. Invert to show token0-per-token1 instead.
+    # Covers: USDC/cbBTC, WETH/cbBTC, Cake/WETH, etc.
     display_price   = token1_per_token0
     display_lower   = price_lower
     display_upper   = price_upper
     price_inverted  = False
-    if t0_is_stable and not t1_is_stable and token1_per_token0 > 0:
+    should_invert   = (t0_is_stable and not t1_is_stable) or                       (token1_per_token0 > 0 and token1_per_token0 < 0.01)
+    if should_invert and token1_per_token0 > 0:
         display_price  = 1.0 / token1_per_token0
         display_lower  = 1.0 / price_upper if price_upper > 0 else 0
         display_upper  = 1.0 / price_lower if price_lower > 0 else 0
