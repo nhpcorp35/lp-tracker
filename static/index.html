@@ -143,6 +143,7 @@
   .status-pill.in { background:var(--green-dim);color:var(--green); }
   .status-pill.out { background:var(--red-dim);color:var(--red); }
   .chain-badge { display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue);margin-left:4px; }
+  .cl-badge { display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;background:#3b1f6e;color:#c084fc;margin-left:4px;font-family:var(--mono); }
   .mini-bar { height:4px;background:var(--border);border-radius:2px;position:relative;overflow:visible;min-width:80px; }
   .mini-fill { position:absolute;top:0;height:100%;border-radius:2px;background:var(--green);opacity:0.5; }
   .mini-fill.out { background:var(--red); }
@@ -714,7 +715,7 @@ function renderPortfolioTable(positions) {
     return `<tr class="${pos.in_range?"in-range":"out-of-range"}" onclick="window.location='${detailUrl}'">
       <td>
         <div style="font-weight:600;color:#fff">${pair} <span class="fee-badge" style="font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue)">${feePct}</span></div>
-        <div style="color:var(--muted);font-size:10px;margin-top:2px">#${pos.id} <span class="chain-badge">${chainLabel}</span></div>
+        <div style="color:var(--muted);font-size:10px;margin-top:2px">#${pos.id} <span class="chain-badge">${chainLabel}</span>${(pos.chain==='base'||pos.chain==='base-pancake')&&pos.tick_spacing?` <span class="cl-badge">CL-${pos.tick_spacing}</span>`:''}</div>
       </td>
       <td><span class="status-pill ${pos.in_range?"in":"out"}">${pos.in_range?"● IN":"● OUT"}</span></td>
       <td style="color:#fff;font-weight:500">${fmtUsd(pos.value_usd)}</td>
