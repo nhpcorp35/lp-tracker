@@ -1803,12 +1803,13 @@ def api_screener():
                     continue
                 avg_vol = sum(float(d.get("volumeUSD", 0)) for d in complete_days) / max(len(complete_days), 1)
                 vol_tvl = avg_vol / tvl if tvl > 0 else 0
-                vols = [float(d.get("volumeUSD", 0)) for d in day_data]
-                tvls = [float(d.get("tvlUSD") or tvl) for d in day_data]
-                vol_recent = sum(vols[1:4]) / 3 if len(vols) >= 4 else None
-                vol_older  = sum(vols[4:7]) / 3 if len(vols) >= 7 else None
-                tvl_recent = sum(tvls[1:4]) / 3 if len(tvls) >= 4 else None
-                tvl_older  = sum(tvls[4:7]) / 3 if len(tvls) >= 7 else None
+                # Use complete_days (skip today partial bucket) for trend calc too
+                vols = [float(d.get("volumeUSD", 0)) for d in complete_days]
+                tvls = [float(d.get("tvlUSD") or tvl) for d in complete_days]
+                vol_recent = sum(vols[0:3]) / 3 if len(vols) >= 3 else None
+                vol_older  = sum(vols[3:6]) / 3 if len(vols) >= 6 else None
+                tvl_recent = sum(tvls[0:3]) / 3 if len(tvls) >= 3 else None
+                tvl_older  = sum(tvls[3:6]) / 3 if len(tvls) >= 6 else None
                 vol_trend_pct = round((vol_recent - vol_older) / vol_older * 100, 1) if vol_older and vol_older > 0 else None
                 tvl_trend_pct = round((tvl_recent - tvl_older) / tvl_older * 100, 1) if tvl_older and tvl_older > 0 else None
                 chain_results.append({
