@@ -1288,6 +1288,19 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         if age_days >= 1:
             real_apr = (pnl_pct / 100) / (age_days / 365) * 100
 
+    # ── Price display inversion ───────────────────────────────────────────
+    # When token0 is a stablecoin (e.g. USDC/cbBTC), price is quoted as
+    # cbBTC-per-USDC which gives tiny numbers. Invert to show USD-per-token1.
+    display_price   = token1_per_token0
+    display_lower   = price_lower
+    display_upper   = price_upper
+    price_inverted  = False
+    if t0_is_stable and not t1_is_stable and token1_per_token0 > 0:
+        display_price  = 1.0 / token1_per_token0
+        display_lower  = 1.0 / price_upper if price_upper > 0 else 0
+        display_upper  = 1.0 / price_lower if price_lower > 0 else 0
+        price_inverted = True
+
     return {
         "id":           pos["id"],
         "token0":       {"symbol": t0["symbol"], "address": t0["id"], "decimals": dec0},
@@ -1303,10 +1316,11 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         "fee0":         round(fee0, 8),
         "fee1":         round(fee1, 8),
 
-        # Prices
-        "current_price":  round(token1_per_token0, 6),  # token1 per token0
-        "price_lower":    round(price_lower, 6),
-        "price_upper":    round(price_upper, 6),
+        # Prices (inverted for stable/volatile pairs so display is human-readable)
+        "current_price":  round(display_price, 6),
+        "price_lower":    round(display_lower, 6),
+        "price_upper":    round(display_upper, 6),
+        "price_inverted": price_inverted,
         "tick_current":   tick_current,
         "tick_lower":     tick_lower,
         "tick_upper":     tick_upper,
