@@ -1296,7 +1296,7 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
     display_lower   = price_lower
     display_upper   = price_upper
     price_inverted  = False
-    should_invert   = (t0_is_stable and not t1_is_stable) or                       (token1_per_token0 > 0 and token1_per_token0 < 0.01)
+    should_invert   = (t0_is_stable and not t1_is_stable) or                       (token1_per_token0 > 0 and token1_per_token0 < 1.0)
     if should_invert and token1_per_token0 > 0:
         display_price  = 1.0 / token1_per_token0
         display_lower  = 1.0 / price_upper if price_upper > 0 else 0
