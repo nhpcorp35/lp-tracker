@@ -208,6 +208,7 @@ function renderTable() {
       <td>
         <span class="pair-cell">${p.token0}/${p.token1}</span>
         <span class="fee-badge">${p.fee_pct}%</span>
+        ${(p.chain==='base'||p.chain==='base-pancake')?(()=>{const ts={100:1,500:10,3000:60,10000:200}[p.fee_tier]||60;return `<span style="display:inline-block;font-size:9px;padding:1px 5px;border-radius:3px;background:#3b1f6e;color:#c084fc;margin-left:4px;font-family:monospace">CL-${ts}</span>`;})():''}
       </td>
       <td><span class="chain-badge ${chainBadge[p.chain]}">${chainLabels[p.chain]}</span></td>
       <td><span class="${aprClass}">+${p.apr.toFixed(1)}%</span></td>
