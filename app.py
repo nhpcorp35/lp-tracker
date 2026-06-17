@@ -2440,7 +2440,7 @@ def _take_snapshot():
 
                 p = enrich_position(raw, chain)
                 value     = p.get("value_usd") or 0
-                fees      = p.get("uncollected_fees_usd") or 0
+                fees      = p.get("fees_usd") or 0
                 pnl       = p.get("pnl_usd") or 0
                 apr       = p.get("apr_estimate")
                 in_range  = p.get("in_range", False)
