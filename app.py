@@ -2485,6 +2485,7 @@ def _take_snapshot():
                 if apr is not None:
                     apr_values.append(apr)
 
+                il_pct = p.get("il_pct")
                 position_snapshots.append({
                     "id":             pos_id,
                     "chain":          chain,
@@ -2492,6 +2493,7 @@ def _take_snapshot():
                     "fees":           round(fees, 2),
                     "collected_fees": collected_fees,
                     "pnl":            round(pnl, 2),
+                    "il_pct":         il_pct,
                     "apr":            round(apr, 2) if apr is not None else None,
                     "in_range":       in_range,
                 })
