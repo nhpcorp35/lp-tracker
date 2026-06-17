@@ -678,7 +678,7 @@ function renderBreakeven(pos) {
   const ilPct    = pos.il_pct;       // negative number e.g. -1.73
   const aprPct   = pos.apr_estimate; // annualised fee APR e.g. 85.3
   const valueUsd = pos.value_usd || 0;
-  const feesUsd  = pos.uncollected_fees_usd || 0;
+  const feesUsd  = (pos.uncollected_fees_usd || 0) + (_totalCollectedFees || 0);
 
   if (ilPct == null || aprPct == null || aprPct <= 0) return;
   section.style.display = "block";
@@ -741,11 +741,13 @@ function renderBreakeven(pos) {
 }
 
 // ── Fee collection log ────────────────────────────────────────────────────────
+let _totalCollectedFees = 0;
 async function loadFeeCollections(positionId, chain) {
   try {
     const res  = await fetch(`/api/fee-collections/${positionId}?chain=${chain}`, { credentials:"same-origin" });
     const data = await res.json();
     const collections = data.collections || [];
+    _totalCollectedFees = data.total_collected || 0;
     const section = document.getElementById("fee-collections-section");
     if (!collections.length) return;
     section.style.display = "block";
