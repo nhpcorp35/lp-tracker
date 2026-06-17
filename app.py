@@ -1234,6 +1234,34 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         manual_entry = auto_entry
         app.logger.info("Auto-recorded entry for RPC-only pos %s: $%.2f", pos_id_str, value_usd)
 
+    # Auto-record entry for subgraph chains when no manual entry exists yet.
+    # Prefer subgraph deposit history; fall back to current value if unavailable.
+    if not is_rpc_only and manual_entry is None and value_usd > 0:
+        sub_dep_usd = (net_dep0 * price0_usd + net_dep1 * price1_usd) if (net_dep0 > 0 or net_dep1 > 0) else 0
+        entry_ts_sub = int(pos["transaction"]["timestamp"]) if (pos.get("transaction") and pos["transaction"].get("timestamp")) else None
+        if sub_dep_usd > 0:
+            auto_entry = {
+                "entry_usd":  round(sub_dep_usd, 4),
+                "entry_amt0": round(net_dep0, 8),
+                "entry_amt1": round(net_dep1, 8),
+                "entry_time": entry_ts_sub or int(time.time()),
+                "auto":       True,
+            }
+        else:
+            # No deposit history (vfat/staked) — fall back to current value
+            auto_entry = {
+                "entry_usd":  round(value_usd, 4),
+                "entry_amt0": round(amt0, 8),
+                "entry_amt1": round(amt1, 8),
+                "entry_time": entry_ts_sub or int(time.time()),
+                "auto":       True,
+            }
+            app.logger.info("Auto-recorded entry (current value fallback) for pos %s: $%.2f", pos_id_str, value_usd)
+        lp_entries[pos_id_str] = auto_entry
+        _save_lp_entries(lp_entries)
+        manual_entry = auto_entry
+        app.logger.info("Auto-recorded entry for subgraph pos %s: $%.2f", pos_id_str, auto_entry["entry_usd"])
+
     # IL fallback: use lp_entries amounts when subgraph deposited amounts are zero
     if il_pct is None and manual_entry and t1_is_stable:
         e_amt0 = float(manual_entry.get("entry_amt0") or 0)
