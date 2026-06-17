@@ -2473,6 +2473,12 @@ def _take_snapshot():
                 apr       = p.get("apr_estimate")
                 in_range  = p.get("in_range", False)
 
+                # Sum all historical fee collection events for this position
+                fc_data      = _load_fee_collections()
+                fc_key       = f"{chain}:{pos_id}"
+                fc_events    = fc_data.get(fc_key, {}).get("collections", [])
+                collected_fees = round(sum(e.get("collected", 0) for e in fc_events), 4)
+
                 total_value_usd += value
                 total_fees_usd  += fees
                 total_pnl_usd   += pnl
@@ -2480,13 +2486,14 @@ def _take_snapshot():
                     apr_values.append(apr)
 
                 position_snapshots.append({
-                    "id":       pos_id,
-                    "chain":    chain,
-                    "value":    round(value, 2),
-                    "fees":     round(fees, 2),
-                    "pnl":      round(pnl, 2),
-                    "apr":      round(apr, 2) if apr is not None else None,
-                    "in_range": in_range,
+                    "id":             pos_id,
+                    "chain":          chain,
+                    "value":          round(value, 2),
+                    "fees":           round(fees, 2),
+                    "collected_fees": collected_fees,
+                    "pnl":            round(pnl, 2),
+                    "apr":            round(apr, 2) if apr is not None else None,
+                    "in_range":       in_range,
                 })
 
                 # Track range transitions
