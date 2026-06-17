@@ -250,6 +250,10 @@
       <canvas id="apr-chart" height="120"></canvas>
       <canvas id="inrange-chart" height="120"></canvas>
     </div>
+    <div id="extra-charts" style="display:none;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+      <canvas id="il-chart" height="120"></canvas>
+      <canvas id="ethprice-chart" height="120"></canvas>
+    </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:11px;text-align:center;">
       <div><div style="color:var(--muted);margin-bottom:2px;">PEAK VALUE</div><div id="hist-peak" style="color:var(--text);font-weight:600;">—</div></div>
       <div><div style="color:var(--muted);margin-bottom:2px;">LOW VALUE</div><div id="hist-low" style="color:var(--text);font-weight:600;">—</div></div>
@@ -980,6 +984,8 @@ async function loadHistory() {
     const fees   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.fees:s.total_fees; });
     const aprs   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.apr:s.avg_apr; });
     const inRangeArr = snapshots.map(s => s.position_in_range!=null ? (s.position_in_range?100:0) : null);
+    const ilPcts    = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?.il_pct ?? null; });
+    const ethPrices = snapshots.map(s => s.eth_price ?? null);
     document.getElementById("hist-peak").textContent = "$"+Math.max(...values.filter(v=>v!=null)).toLocaleString("en-US",{maximumFractionDigits:0});
     document.getElementById("hist-low").textContent  = "$"+Math.min(...values.filter(v=>v!=null)).toLocaleString("en-US",{maximumFractionDigits:0});
     const validAprs = aprs.filter(a=>a!=null);
@@ -1013,6 +1019,24 @@ async function loadHistory() {
     aprChart = new Chart(document.getElementById("apr-chart"),{ type:"line",data:{labels,datasets:aprDatasets},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Your APR vs Pool APR (%)",color:"#9ca3af",font:{size:11}},legend:{display:!!poolAprDataset,labels:{color:"#6b7280",font:{size:10},boxWidth:12}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
     if (window.inRangeChart) window.inRangeChart.destroy();
     window.inRangeChart = new Chart(document.getElementById("inrange-chart"),{ type:"line",data:{labels,datasets:[{label:"In Range",data:inRangeArr,borderColor:"#2dcd7a",backgroundColor:"rgba(45,205,122,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.1,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"In Range (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,min:0,max:100,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
+
+    // IL % and ETH price charts — only shown when ≥2 non-null points exist
+    const hasIL  = ilPcts.filter(v=>v!=null).length >= 2;
+    const hasETH = ethPrices.filter(v=>v!=null).length >= 2;
+    const extraEl = document.getElementById("extra-charts");
+    if (hasIL || hasETH) {
+      extraEl.style.display = "grid";
+      if (hasIL) {
+        if (window.ilChart) window.ilChart.destroy();
+        window.ilChart = new Chart(document.getElementById("il-chart"),{type:"line",data:{labels,datasets:[{label:"IL %",data:ilPcts,borderColor:"#f87171",backgroundColor:"rgba(248,113,113,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Impermanent Loss (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}}});
+      } else { document.getElementById("il-chart").style.display="none"; }
+      if (hasETH) {
+        if (window.ethPriceChart) window.ethPriceChart.destroy();
+        window.ethPriceChart = new Chart(document.getElementById("ethprice-chart"),{type:"line",data:{labels,datasets:[{label:"ETH Price",data:ethPrices,borderColor:"#818cf8",backgroundColor:"rgba(129,140,248,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"ETH Price (USD)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>"$"+v.toLocaleString()}}}}});
+      } else { document.getElementById("ethprice-chart").style.display="none"; }
+    } else {
+      extraEl.style.display = "none";
+    }
   } catch(e) { console.error("History failed:", e); }
 }
 
@@ -1245,3 +1269,4 @@ if (!positionId || positionId === "position") {
 </script>
 </body>
 </html>
+
