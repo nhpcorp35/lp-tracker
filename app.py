@@ -57,6 +57,9 @@ _SUBGRAPH_PROXY = os.environ.get("SUBGRAPH_PROXY", "").rstrip("/")
 if _SUBGRAPH_PROXY:
     GRAPH_BASE = f"{_SUBGRAPH_PROXY}/https://gateway.thegraph.com/api/subgraphs/id"
 
+# Use a browser-like User-Agent to avoid Cloudflare bot detection (error 1010)
+_GRAPH_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
 # ── Email-to-SMS alert config ─────────────────────────────────────────────────
 # ── Pushover push notifications ───────────────────────────────────────────────
 PUSHOVER_TOKEN = os.environ.get("PUSHOVER_TOKEN", "")
@@ -226,7 +229,7 @@ def _fetch_positions_for_wallet(wallet_address: str, chain: str) -> list:
     resp = requests.post(
         url,
         json={"query": query, "variables": {"owner": wallet_address.lower()}},
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}"},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}", "User-Agent": _GRAPH_UA},
         timeout=10,
     )
     return resp.json().get("data", {}).get("positions", [])
@@ -907,6 +910,7 @@ def query_subgraph(wallet: str, chain: str = "base") -> list:
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {GRAPH_API_KEY}",
+        "User-Agent": _GRAPH_UA,
     }
     try:
         r = requests.post(url, json=payload, headers=headers, timeout=15)
@@ -939,6 +943,7 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {GRAPH_API_KEY}",
+        "User-Agent": _GRAPH_UA,
     }
     try:
         # Try singular first (Uniswap V3 standard schema)
@@ -1765,7 +1770,7 @@ def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
 
         # Fallback: The Graph with API key
         url = f"{GRAPH_BASE}/{AERODROME_SUBGRAPH_ID}"
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}"}
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}", "User-Agent": _GRAPH_UA}
         for entity, fee_field in [("pools", "feeTier"), ("clPools", "tickSpacing")]:
             try:
                 pools, errors = _query(url, entity, fee_field, headers)
@@ -1827,6 +1832,7 @@ def api_screener():
             req_headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {GRAPH_API_KEY}",
+        "User-Agent": _GRAPH_UA,
             }
             r = requests.post(url, json={"query": query}, headers=req_headers, timeout=15)
             r.raise_for_status()
@@ -3092,7 +3098,7 @@ def get_pool_volume(pool_address):
         resp = requests.post(
             url,
             json={"query": query, "variables": {"pool": pool_address.lower(), "days": days}},
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}"},
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {GRAPH_API_KEY}", "User-Agent": _GRAPH_UA},
             timeout=10,
         )
         data = resp.json().get("data", {}).get("poolDayDatas", [])
