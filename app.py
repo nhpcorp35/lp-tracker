@@ -51,6 +51,12 @@ HYPEREVM_RPC   = "https://rpc.hyperliquid.xyz/evm"
 
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
 
+# If a proxy is configured, route subgraph requests through it to avoid
+# Cloudflare IP blocks on Railway. The proxy prepends itself to the target URL.
+_SUBGRAPH_PROXY = os.environ.get("SUBGRAPH_PROXY", "").rstrip("/")
+if _SUBGRAPH_PROXY:
+    GRAPH_BASE = f"{_SUBGRAPH_PROXY}/https://gateway.thegraph.com/api/subgraphs/id"
+
 # ── Email-to-SMS alert config ─────────────────────────────────────────────────
 # ── Pushover push notifications ───────────────────────────────────────────────
 PUSHOVER_TOKEN = os.environ.get("PUSHOVER_TOKEN", "")
@@ -1632,9 +1638,12 @@ def screener_page():
 
 
 AERODROME_SUBGRAPH_ID = "GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM"
-AERODROME_GOLDSKY_URL = (
+_AERODROME_GOLDSKY_RAW = (
     "https://api.goldsky.com/api/public/project_clnbo3e3c16lj33xva5r2ckud"
     "/subgraphs/aerodrome-sl-base/stable/gn"
+)
+AERODROME_GOLDSKY_URL = (
+    f"{_SUBGRAPH_PROXY}/{_AERODROME_GOLDSKY_RAW}" if _SUBGRAPH_PROXY else _AERODROME_GOLDSKY_RAW
 )
 
 def fetch_aerodrome_pools(min_tvl=1_000_000, min_apr=20):
