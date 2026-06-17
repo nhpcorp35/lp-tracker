@@ -608,7 +608,7 @@ function renderRebalances(data) {
       else if (!c.close_ts) { const age=Math.floor((Date.now()/1000-c.open_ts)/3600),d=Math.floor(age/24); durStr=`<span style="color:var(--green)">${d>0?d+"d":age+"h"} open</span>`; }
       const feesTotal = (c.fees_collected_usd||0) + (c.fees_usd_uncollected||0);
       const feesStr = feesTotal > 0 ? fmtUsd(feesTotal) : "—";
-      const pnlStr = c.pnl_usd != null ? `<span style="color:${c.pnl_usd>=0?"var(--green)":"var(--red)"}">${c.pnl_usd>=0?"+":""}${fmtUsd(c.pnl_usd)}</span>` : "—";
+      const pnlStr = c.pnl_usd != null ? `<span style="color:${c.pnl_usd>=0?"var(--green)":"var(--red)"}">${c.pnl_usd>=0?"+":"-"}${fmtUsd(c.pnl_usd)}</span>` : "—";
       return `<div style="display:grid;grid-template-columns:80px 80px 80px 160px 70px 80px 80px;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);align-items:center;font-size:11px;">
         <span style="color:var(--blue)">#${c.nft_id}</span><span style="color:var(--muted)">${openDate}</span><span>${closeDate}</span>
         <span style="color:var(--muted)">${fmtPrice(c.price_lower)} – ${fmtPrice(c.price_upper)}</span>
@@ -619,7 +619,7 @@ function renderRebalances(data) {
     return `<div style="margin-bottom:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <span style="font-size:12px;font-weight:600;color:var(--text)">${pairLabel}</span>
-        <span style="font-size:11px;color:var(--muted)">${pool.rebalance_count} rebalance${pool.rebalance_count!==1?"s":""} · ${avgDurStr} · fees <span style="color:var(--green)">${fmtUsd(pool.total_fees_usd)}</span> · P&L <span style="color:${sc}">${pool.total_pnl_usd>=0?"+":""}${fmtUsd(pool.total_pnl_usd)}</span></span>
+        <span style="font-size:11px;color:var(--muted)">${pool.rebalance_count} rebalance${pool.rebalance_count!==1?"s":""} · ${avgDurStr} · fees <span style="color:var(--green)">${fmtUsd(pool.total_fees_usd)}</span> · P&L <span style="color:${sc}">${pool.total_pnl_usd>=0?"+":"-"}${fmtUsd(pool.total_pnl_usd)}</span></span>
       </div>
       <div style="display:grid;grid-template-columns:80px 80px 80px 160px 70px 80px 80px;gap:8px;padding:0 0 5px;border-bottom:1px solid var(--border2);margin-bottom:2px;">
         ${["NFT","OPENED","CLOSED","RANGE","DURATION","FEES","P&L"].map(h=>`<span style="font-size:9px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase">${h}</span>`).join("")}
@@ -1304,3 +1304,4 @@ function renderClosed(pools) {
 </script>
 </body>
 </html>
+
