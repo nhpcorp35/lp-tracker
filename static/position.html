@@ -245,10 +245,12 @@
         <button onclick="setChartPeriod('all')" id="period-all" class="period-btn">ALL</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
       <canvas id="value-chart" height="120"></canvas>
       <canvas id="apr-chart" height="120"></canvas>
-      <canvas id="inrange-chart" height="120"></canvas>
+      <canvas id="il-chart" height="120"></canvas>
+      <canvas id="ethprice-chart" height="120"></canvas>
+      <canvas id="inrange-chart" height="120" style="display:none;"></canvas>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:11px;text-align:center;">
       <div><div style="color:var(--muted);margin-bottom:2px;">PEAK VALUE</div><div id="hist-peak" style="color:var(--text);font-weight:600;">—</div></div>
@@ -967,6 +969,8 @@ async function loadHistory() {
     if (snapshots.length < 2) {
       document.getElementById("value-chart").style.display = "none";
       document.getElementById("apr-chart").style.display = "none";
+      document.getElementById("il-chart").style.display = "none";
+      document.getElementById("ethprice-chart").style.display = "none";
       document.getElementById("inrange-chart").style.display = "none";
       section.querySelector("#history-title").insertAdjacentHTML("afterend",
         `<div style="color:var(--muted);font-family:var(--mono);font-size:12px;padding:16px 0;">
@@ -975,11 +979,14 @@ async function loadHistory() {
         </div>`);
       return;
     }
-    const labels = snapshots.map(s => new Date(s.ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}));
-    const values = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.value:s.total_value; });
-    const fees   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.fees:s.total_fees; });
-    const aprs   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.apr:s.avg_apr; });
-    const inRangeArr = snapshots.map(s => s.position_in_range!=null ? (s.position_in_range?100:0) : null);
+    const labels        = snapshots.map(s => new Date(s.ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric"}));
+    const values        = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.value:s.total_value; });
+    const fees          = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.fees:s.total_fees; });
+    const collectedFees = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?.collected_fees ?? null; });
+    const aprs          = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.apr:s.avg_apr; });
+    const ilPcts        = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?.il_pct ?? null; });
+    const ethPrices     = snapshots.map(s => s.eth_price ?? null);
+    const inRangeArr    = snapshots.map(s => s.position_in_range!=null ? (s.position_in_range?100:0) : null);
     document.getElementById("hist-peak").textContent = "$"+Math.max(...values.filter(v=>v!=null)).toLocaleString("en-US",{maximumFractionDigits:0});
     document.getElementById("hist-low").textContent  = "$"+Math.min(...values.filter(v=>v!=null)).toLocaleString("en-US",{maximumFractionDigits:0});
     const validAprs = aprs.filter(a=>a!=null);
@@ -1005,14 +1012,43 @@ async function loadHistory() {
         poolAprDataset = {label:"Pool APR %",data:poolAprs,borderColor:"rgba(156,163,175,0.6)",backgroundColor:"transparent",borderWidth:1.5,pointRadius:0,fill:false,tension:0.3,borderDash:[3,3],spanGaps:true};
       }
     }
+    // Value + uncollected fees chart
+    const valueDatasets = [
+      {label:"Value",data:values,borderColor:"#4a9eff",backgroundColor:"rgba(74,158,255,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3},
+      {label:"Uncollected Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[4,2]},
+    ];
+    if (collectedFees.some(v=>v!=null)) {
+      valueDatasets.push({label:"Collected Fees",data:collectedFees,borderColor:"#a78bfa",backgroundColor:"rgba(167,139,250,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[2,2],spanGaps:true});
+    }
     if (valueChart) valueChart.destroy();
-    valueChart = new Chart(document.getElementById("value-chart"),{ type:"line",data:{labels,datasets:[{label:"Value",data:values,borderColor:"#4a9eff",backgroundColor:"rgba(74,158,255,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3},{label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[4,2]}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Position Value (USD)",color:"#9ca3af",font:{size:11}}}} });
+    valueChart = new Chart(document.getElementById("value-chart"),{type:"line",data:{labels,datasets:valueDatasets},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Position Value (USD)",color:"#9ca3af",font:{size:11}},legend:{display:true,labels:{color:"#6b7280",font:{size:10},boxWidth:12}}}}});
+
+    // APR chart
     const aprDatasets = [{label:"Your APR %",data:aprs,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3}];
     if (poolAprDataset) aprDatasets.push(poolAprDataset);
     if (aprChart) aprChart.destroy();
-    aprChart = new Chart(document.getElementById("apr-chart"),{ type:"line",data:{labels,datasets:aprDatasets},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Your APR vs Pool APR (%)",color:"#9ca3af",font:{size:11}},legend:{display:!!poolAprDataset,labels:{color:"#6b7280",font:{size:10},boxWidth:12}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
+    aprChart = new Chart(document.getElementById("apr-chart"),{type:"line",data:{labels,datasets:aprDatasets},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Your APR vs Pool APR (%)",color:"#9ca3af",font:{size:11}},legend:{display:!!poolAprDataset,labels:{color:"#6b7280",font:{size:10},boxWidth:12}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}}});
+
+    // IL % chart
+    if (window.ilChart) window.ilChart.destroy();
+    if (ilPcts.some(v=>v!=null)) {
+      document.getElementById("il-chart").style.display = "";
+      window.ilChart = new Chart(document.getElementById("il-chart"),{type:"line",data:{labels,datasets:[{label:"IL %",data:ilPcts,borderColor:"#f87171",backgroundColor:"rgba(248,113,113,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Impermanent Loss (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}}});
+    } else {
+      document.getElementById("il-chart").style.display = "none";
+    }
+
+    // ETH price chart
+    if (window.ethPriceChart) window.ethPriceChart.destroy();
+    if (ethPrices.some(v=>v!=null)) {
+      document.getElementById("ethprice-chart").style.display = "";
+      window.ethPriceChart = new Chart(document.getElementById("ethprice-chart"),{type:"line",data:{labels,datasets:[{label:"ETH Price",data:ethPrices,borderColor:"#818cf8",backgroundColor:"rgba(129,140,248,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"ETH Price (USD)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>"$"+v.toLocaleString()}}}}});
+    } else {
+      document.getElementById("ethprice-chart").style.display = "none";
+    }
+
     if (window.inRangeChart) window.inRangeChart.destroy();
-    window.inRangeChart = new Chart(document.getElementById("inrange-chart"),{ type:"line",data:{labels,datasets:[{label:"In Range",data:inRangeArr,borderColor:"#2dcd7a",backgroundColor:"rgba(45,205,122,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.1,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"In Range (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,min:0,max:100,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}} });
+    window.inRangeChart = new Chart(document.getElementById("inrange-chart"),{type:"line",data:{labels,datasets:[{label:"In Range",data:inRangeArr,borderColor:"#2dcd7a",backgroundColor:"rgba(45,205,122,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.1,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"In Range (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,min:0,max:100,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}}});
   } catch(e) { console.error("History failed:", e); }
 }
 
@@ -1245,3 +1281,4 @@ if (!positionId || positionId === "position") {
 </script>
 </body>
 </html>
+
