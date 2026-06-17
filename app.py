@@ -2663,12 +2663,23 @@ def cleanup_rebalances():
 @app.route("/api/range-events", methods=["GET"])
 def get_range_events():
     """Return out-of-range transition log and current last_status per position."""
-    data   = _load_range_events()
-    limit  = int(request.args.get("limit", 50))
-    events = list(reversed(data["events"]))[:limit]   # newest first
+    data        = _load_range_events()
+    limit       = int(request.args.get("limit", 50))
+    position_id = request.args.get("position_id")
+
+    all_events  = data["events"]
+    last_status = data["last_status"]
+
+    # When called from a single-position page, filter to that position only
+    if position_id:
+        all_events  = [e for e in all_events  if str(e.get("id")) == str(position_id)]
+        last_status = {k: v for k, v in last_status.items()
+                       if k.split(":")[-1] == str(position_id)}
+
+    events = list(reversed(all_events))[:limit]   # newest first
     return jsonify({
         "events":      events,
-        "last_status": data["last_status"],
+        "last_status": last_status,
     })
 
 
@@ -3085,5 +3096,6 @@ if __name__ == "__main__":
     _wallet_scan_thread = threading.Thread(target=_wallet_scan_loop, daemon=True)
     _wallet_scan_thread.start()
     app.run(host="0.0.0.0", port=5001, debug=False)
+
 
 
