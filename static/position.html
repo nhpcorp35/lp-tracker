@@ -250,7 +250,7 @@
       <canvas id="apr-chart" height="120"></canvas>
       <canvas id="inrange-chart" height="120"></canvas>
     </div>
-    <div id="extra-charts" style="display:none;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div id="extra-charts" style="display:none;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;margin-bottom:0;">
       <canvas id="il-chart" height="120"></canvas>
       <canvas id="ethprice-chart" height="120"></canvas>
     </div>
@@ -984,7 +984,7 @@ async function loadHistory() {
     const fees   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.fees:s.total_fees; });
     const aprs   = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?p.apr:s.avg_apr; });
     const inRangeArr = snapshots.map(s => s.position_in_range!=null ? (s.position_in_range?100:0) : null);
-    const ilPcts    = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); return p?.il_pct ?? null; });
+    const ilPcts    = snapshots.map(s => { const p=s.positions?.find(x=>String(x.id)===positionId); const v=p?.il_pct ?? null; return v!=null ? Math.round(v*100)/100 : null; });
     const ethPrices = snapshots.map(s => s.eth_price ?? null);
     document.getElementById("hist-peak").textContent = "$"+Math.max(...values.filter(v=>v!=null)).toLocaleString("en-US",{maximumFractionDigits:0});
     document.getElementById("hist-low").textContent  = "$"+Math.min(...values.filter(v=>v!=null)).toLocaleString("en-US",{maximumFractionDigits:0});
