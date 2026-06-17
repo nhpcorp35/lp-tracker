@@ -2515,12 +2515,14 @@ def _take_snapshot():
 
         avg_apr = round(sum(apr_values) / len(apr_values), 2) if apr_values else None
 
+        eth_price_snap = _get_eth_price_usd()
         snapshot = {
             "ts":          int(time.time()),
             "total_value": round(total_value_usd, 2),
             "total_fees":  round(total_fees_usd, 2),
             "total_pnl":   round(total_pnl_usd, 2),
             "avg_apr":     avg_apr,
+            "eth_price":   round(eth_price_snap, 2) if eth_price_snap else None,
             "positions":   position_snapshots,
         }
 
