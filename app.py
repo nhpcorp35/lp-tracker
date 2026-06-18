@@ -3163,6 +3163,18 @@ def _wallet_scan_loop():
         _time.sleep(WALLET_SCAN_INTERVAL)
 
 
+
+# ── Gunicorn-compatible background thread startup ─────────────────────────────
+def _start_background_threads():
+    import threading as _threading
+    t1 = _threading.Thread(target=_alert_poll_loop, daemon=True)
+    t1.start()
+    t2 = _threading.Thread(target=_wallet_scan_loop, daemon=True)
+    t2.start()
+    app.logger.info("Background threads started (gunicorn-compatible)")
+
+_start_background_threads()
+
 if __name__ == "__main__":
     # Start background alert polling thread
     _alert_thread = threading.Thread(target=_alert_poll_loop, daemon=True)
