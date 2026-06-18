@@ -1,3 +1,34 @@
+## 2026-06-18
+
+### lp-tracker (lptracker.info)
+
+**Bug Fixes**
+- Fixed "CURRENTLY OUT" badge mismatch — filtered `/range-events` endpoint by `position_id` so stale statuses from other positions no longer bleed through
+- Fixed gunicorn `--workers 2` killing the snapshot background thread — dropped to `--workers 1` in Procfile
+- Fixed snapshot loop using wrong key `uncollected_fees_usd` → `fees_usd` (fees were always showing $0 in snapshots)
+- Fixed breakeven calculator to include collected + uncollected fees (was previously showing $0 fees)
+- Fixed missing `-` sign on negative P&L in rebalance/closed tab
+- Fixed bad `5293463` rebalance cycle with `value_at_close=0`
+
+**Features**
+- Added `collected_fees`, `eth_price`, and `il_pct` fields to position snapshots
+- Added IL % and ETH price charts to position detail page (renders only when ≥2 data points exist)
+- Added auto-record entry for subgraph-chain positions on first load (was previously RPC-only)
+- Added Fly.io subgraph proxy (`subgraph-proxy.fly.dev`) to bypass Cloudflare 1010 bot block on Railway
+- Added browser `User-Agent` header to all subgraph requests
+
+**Data / Maintenance**
+- Backfilled missing snapshots for all 6 active positions so history charts render
+- Manually added entry values: `5343687` ($1,650) and `2041851` ($100)
+- Cleaned up rebalance tracker — removed 23 garbage 0–1 second cycles created during Cloudflare block period
+- Confirmed `5279494` and `5293463` are fully burned on-chain (zero liquidity); both correctly appear in Closed tab
+
+### Pending
+- Raise `SCORE_THRESHOLD` on taotrend-bot to 70 once `history_age_days` hits 7
+- IL/ETH price charts need a few more hourly snapshots to show meaningful data
+
+---
+
 ## 2026-06-16 (session 2)
 
 ### Fixed
