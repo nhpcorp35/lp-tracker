@@ -898,6 +898,36 @@ query GetPositionById($id: ID!) {
 """
 
 
+
+_GRAPH_DIRECT_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
+
+def _subgraph_post(url: str, payload: dict, headers: dict, retries: int = 3, delay: float = 2.0):
+    """POST to a subgraph URL with retry on network/HTTP errors."""
+    import time
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=15)
+            if r.status_code == 200:
+                return r
+            # On non-200 (e.g. Cloudflare 403/1010), retry with direct URL as fallback
+            if attempt == 0 and url != _GRAPH_DIRECT_BASE and _GRAPH_DIRECT_BASE not in url:
+                subgraph_id = url.split("/")[-1]
+                fallback_url = f"{_GRAPH_DIRECT_BASE}/{subgraph_id}"
+                app.logger.warning("Subgraph %s returned %s, retrying direct: %s", url, r.status_code, fallback_url)
+                r2 = requests.post(fallback_url, json=payload, headers=headers, timeout=15)
+                if r2.status_code == 200:
+                    return r2
+            app.logger.warning("Subgraph attempt %d/%d failed: HTTP %s", attempt+1, retries, r.status_code)
+            time.sleep(delay)
+        except Exception as e:
+            last_exc = e
+            app.logger.warning("Subgraph attempt %d/%d exception: %s", attempt+1, retries, e)
+            time.sleep(delay)
+    if last_exc:
+        raise last_exc
+    raise Exception(f"Subgraph failed after {retries} attempts")
+
 def query_subgraph(wallet: str, chain: str = "base") -> list:
     """Query The Graph for Uniswap V3 positions owned by a wallet."""
     cfg = CHAINS.get(chain, CHAINS["base"])
@@ -913,8 +943,7 @@ def query_subgraph(wallet: str, chain: str = "base") -> list:
         "User-Agent": _GRAPH_UA,
     }
     try:
-        r = requests.post(url, json=payload, headers=headers, timeout=15)
-        r.raise_for_status()
+        r = _subgraph_post(url, payload, headers)
         data = r.json()
         if "errors" in data:
             app.logger.error("Subgraph errors: %s", data["errors"])
@@ -947,11 +976,7 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
     }
     try:
         # Try singular first (Uniswap V3 standard schema)
-        r = requests.post(url, json={
-            "query": POSITION_BY_ID_QUERY,
-            "variables": {"id": str(position_id)},
-        }, headers=headers, timeout=15)
-        r.raise_for_status()
+        r = _subgraph_post(url, {"query": POSITION_BY_ID_QUERY, "variables": {"id": str(position_id)}}, headers)
         data = r.json()
         if "errors" not in data:
             return data.get("data", {}).get("position")
@@ -959,11 +984,7 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
         err_msgs = [e.get("message", "") for e in data.get("errors", [])]
         if any("no field" in m or "unknown field" in m.lower() for m in err_msgs):
             app.logger.info("Subgraph %s: singular position() unsupported, trying plural fallback", chain)
-            r2 = requests.post(url, json={
-                "query": POSITION_BY_ID_QUERY_PLURAL,
-                "variables": {"id": str(position_id)},
-            }, headers=headers, timeout=15)
-            r2.raise_for_status()
+            r2 = _subgraph_post(url, {"query": POSITION_BY_ID_QUERY_PLURAL, "variables": {"id": str(position_id)}}, headers)
             data2 = r2.json()
             if "errors" not in data2:
                 results = data2.get("data", {}).get("positions", [])
