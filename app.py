@@ -3165,13 +3165,22 @@ def _wallet_scan_loop():
 
 
 # ── Gunicorn-compatible background thread startup ─────────────────────────────
+# Use a lock file to ensure only one worker process starts the background threads.
 def _start_background_threads():
     import threading as _threading
-    t1 = _threading.Thread(target=_alert_poll_loop, daemon=True)
-    t1.start()
-    t2 = _threading.Thread(target=_wallet_scan_loop, daemon=True)
-    t2.start()
-    app.logger.info("Background threads started (gunicorn-compatible)")
+    import fcntl, os as _os
+    lock_path = "/tmp/lp_tracker_threads.lock"
+    try:
+        fd = _os.open(lock_path, _os.O_CREAT | _os.O_RDWR)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Got the lock — we are the first worker, start threads
+        t1 = _threading.Thread(target=_alert_poll_loop, daemon=True)
+        t1.start()
+        t2 = _threading.Thread(target=_wallet_scan_loop, daemon=True)
+        t2.start()
+        app.logger.info("Background threads started (gunicorn-compatible, pid=%d)", _os.getpid())
+    except BlockingIOError:
+        app.logger.info("Background threads already started by another worker, skipping (pid=%d)", _os.getpid())
 
 _start_background_threads()
 
