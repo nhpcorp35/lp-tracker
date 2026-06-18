@@ -362,7 +362,8 @@ POOL_ABI = [
 
 
 def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int,
-                            chain: str, position_id: str | None = None) -> dict | None:
+                            chain: str, position_id: str | None = None,
+                            liquidity: int = 1) -> dict | None:
     """
     Fetch feeGrowthGlobal, tick feeGrowthOutside, and (if position_id given)
     feeGrowthInsideLast directly from on-chain contracts.
@@ -393,7 +394,7 @@ def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int,
         # Also fetch feeGrowthInsideLast from NPM for accurate delta calculation.
         # The subgraph value can lag, compressing the fee delta and undercounting fees.
         npm_address = CHAINS.get(chain, {}).get("npm")
-        if position_id and npm_address:
+        if position_id and npm_address and liquidity > 0:
             try:
                 npm = web3.eth.contract(
                     address=Web3.to_checksum_address(npm_address),
@@ -405,7 +406,10 @@ def _fetch_onchain_fee_data(pool_address: str, tick_lower: int, tick_upper: int,
                 result["tokens_owed0"] = pos_data[10]  # settled fees not yet collected
                 result["tokens_owed1"] = pos_data[11]
             except Exception as e:
-                app.logger.warning("NPM positions() call failed for #%s: %s", position_id, e)
+                if liquidity > 0:
+                    app.logger.warning("NPM positions() call failed for #%s: %s", position_id, e)
+                else:
+                    app.logger.debug("NPM positions() call skipped for closed position #%s", position_id)
 
         return result
     except Exception as e:
@@ -1065,7 +1069,8 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
     # Subgraph feeGrowthGlobal, tick data, and feeGrowthInsideLast can be stale,
     # giving $0 or understated fees. Fetch current values from pool + NPM contracts.
     onchain = _fetch_onchain_fee_data(
-        pool["id"], tick_lower, tick_upper, chain, position_id=pos.get("id")
+        pool["id"], tick_lower, tick_upper, chain, position_id=pos.get("id"),
+        liquidity=int(pos.get("liquidity") or 0)
     )
     if onchain:
         pool = dict(pool)
