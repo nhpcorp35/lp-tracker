@@ -443,6 +443,7 @@ ERC20_ABI_MIN = [
     {"inputs": [], "name": "symbol",   "outputs": [{"type": "string"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "decimals", "outputs": [{"type": "uint8"}],  "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "name",     "outputs": [{"type": "string"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [{"name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function"},
 ]
 
 FACTORY_ABI_MIN = [
@@ -480,6 +481,21 @@ POOL_SLOT0_ABI = [
     {"inputs": [], "name": "token1",    "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "fee",       "outputs": [{"internalType": "uint24",  "name": "", "type": "uint24"}],  "stateMutability": "view", "type": "function"},
 ]
+
+SWAP_EVENT_ABI = [{
+    "anonymous": False,
+    "inputs": [
+        {"indexed": True,  "name": "sender",       "type": "address"},
+        {"indexed": True,  "name": "recipient",     "type": "address"},
+        {"indexed": False, "name": "amount0",       "type": "int256"},
+        {"indexed": False, "name": "amount1",       "type": "int256"},
+        {"indexed": False, "name": "sqrtPriceX96",  "type": "uint160"},
+        {"indexed": False, "name": "liquidity",     "type": "uint128"},
+        {"indexed": False, "name": "tick",          "type": "int24"},
+    ],
+    "name": "Swap",
+    "type": "event",
+}]
 
 _token_cache: dict = {}
 
@@ -550,6 +566,56 @@ def fetch_position_hyperevm(position_id: str) -> dict | None:
         token1_per_token0 = raw_price * (10 ** dec0) / (10 ** dec1)
         token0_per_token1 = 1 / token1_per_token0 if token1_per_token0 else 0
 
+        # ── On-chain TVL + 24h volume for Pool APR ────────────────────────
+        pool_tvl_usd   = 0.0
+        pool_day_data  = []
+        pool_liquidity = 0
+        try:
+            erc20_t0 = w3.eth.contract(address=Web3.to_checksum_address(token0_addr), abi=ERC20_ABI_MIN)
+            erc20_t1 = w3.eth.contract(address=Web3.to_checksum_address(token1_addr), abi=ERC20_ABI_MIN)
+            bal0_raw = erc20_t0.functions.balanceOf(Web3.to_checksum_address(pool_addr)).call()
+            bal1_raw = erc20_t1.functions.balanceOf(Web3.to_checksum_address(pool_addr)).call()
+            bal0 = bal0_raw / (10 ** dec0)
+            bal1 = bal1_raw / (10 ** dec1)
+            hype_usd = _get_hype_price_usd()
+            hype_syms = {"WHYPE", "HYPE"}
+            t0_sym = t0["symbol"].upper()
+            t1_sym = t1["symbol"].upper()
+            if t1_sym in hype_syms:
+                p0_usd = token1_per_token0 * hype_usd
+                p1_usd = hype_usd
+            elif t0_sym in hype_syms:
+                p0_usd = hype_usd
+                p1_usd = token0_per_token1 * hype_usd
+            else:
+                p0_usd = 0.0
+                p1_usd = 0.0
+            pool_tvl_usd = bal0 * p0_usd + bal1 * p1_usd
+            # Pool active liquidity
+            pool_liquidity = pool_contract.functions.liquidity().call()
+            # Scan Swap events: last 7200 blocks (~24h at ~12s/block on HyperEVM)
+            latest_block = w3.eth.block_number
+            from_block   = max(0, latest_block - 7200)
+            swap_contract = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=SWAP_EVENT_ABI)
+            events = swap_contract.events.Swap.get_logs(fromBlock=from_block, toBlock=latest_block)
+            vol0 = sum(abs(int(e["args"]["amount0"])) / (10 ** dec0) for e in events)
+            vol1 = sum(abs(int(e["args"]["amount1"])) / (10 ** dec1) for e in events)
+            vol_usd = vol0 * p0_usd + vol1 * p1_usd
+            import time as _time
+            today_ts = int(_time.time()) // 86400 * 86400
+            if vol_usd > 0 and pool_tvl_usd > 0:
+                fee_tier_dec = fee / 1_000_000
+                fees_24h = vol_usd * fee_tier_dec
+                pool_day_data = [{
+                    "date":      today_ts,
+                    "volumeUSD": str(round(vol_usd, 2)),
+                    "feesUSD":   str(round(fees_24h, 4)),
+                    "tvlUSD":    str(round(pool_tvl_usd, 2)),
+                }]
+            app.logger.info("HyperEVM pool TVL=%.2f vol24h=%.2f events=%d", pool_tvl_usd, vol_usd, len(events))
+        except Exception as _e:
+            app.logger.warning("HyperEVM TVL/volume fetch failed: %s", _e)
+
         return {
             "id":        str(position_id),
             "liquidity": str(liquidity),
@@ -577,6 +643,9 @@ def fetch_position_hyperevm(position_id: str) -> dict | None:
                 "token1Price":          str(token1_per_token0),
                 "token0": t0,
                 "token1": t1,
+                "totalValueLockedUSD":  str(round(pool_tvl_usd, 2)),
+                "liquidity":            str(pool_liquidity),
+                "poolDayData":          pool_day_data,
             },
         }
     except Exception as e:
@@ -3197,6 +3266,7 @@ if __name__ == "__main__":
     _wallet_scan_thread = threading.Thread(target=_wallet_scan_loop, daemon=True)
     _wallet_scan_thread.start()
     app.run(host="0.0.0.0", port=5001, debug=False)
+
 
 
 
