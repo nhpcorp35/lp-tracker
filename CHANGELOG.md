@@ -1,3 +1,22 @@
+## 2026-06-19 (session 3)
+
+### lp-tracker (lptracker.info)
+
+**Features**
+- Added `advertised_apr` for USOL/WHYPE via GeckoTerminal API (`/api/v2/networks/hyperevm/pools/<addr>`) — returns real pool TVL and 24h volume; no RPC calls needed
+- `apr_estimate` now uses TVL-share path for RPC-only chains (position value / pool TVL × daily fees × 365); previously used position liquidity / pool liquidity which was always 1.0 (wrong) since pool liquidity was set to position liquidity
+- Both APRs now displaying: `advertised_apr` ~163% (pool-level), `apr_estimate` ~150% (position-specific)
+
+**Bug Fixes**
+- Fixed `apr_estimate` returning 750,000%+ for HyperEVM — caused by pool_liquidity == pos_liquidity (RPC-only positions don't have real pool liquidity); fixed by forcing TVL-share path when `rpc_only=True`
+- Removed event-scan approach (balanceOf + Swap get_logs) — HyperEVM public RPC enforces 1000-block limit and rate limits all log queries
+
+**Pending**
+- Rotate PAT before next session
+- GMX take-profit tracking still outstanding
+
+---
+
 ## 2026-06-19 (session 2)
 
 ### lp-tracker (lptracker.info)
