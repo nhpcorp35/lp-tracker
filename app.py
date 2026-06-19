@@ -570,62 +570,82 @@ def fetch_position_hyperevm(position_id: str) -> dict | None:
         pool_tvl_usd   = 0.0
         pool_day_data  = []
         pool_liquidity = 0
-        try:
-            erc20_t0 = w3.eth.contract(address=Web3.to_checksum_address(token0_addr), abi=ERC20_ABI_MIN)
-            erc20_t1 = w3.eth.contract(address=Web3.to_checksum_address(token1_addr), abi=ERC20_ABI_MIN)
-            bal0_raw = erc20_t0.functions.balanceOf(Web3.to_checksum_address(pool_addr)).call()
-            bal1_raw = erc20_t1.functions.balanceOf(Web3.to_checksum_address(pool_addr)).call()
-            bal0 = bal0_raw / (10 ** dec0)
-            bal1 = bal1_raw / (10 ** dec1)
-            hype_usd = _get_hype_price_usd()
-            hype_syms = {"WHYPE", "HYPE"}
-            t0_sym = t0["symbol"].upper()
-            t1_sym = t1["symbol"].upper()
-            if t1_sym in hype_syms:
-                p0_usd = token1_per_token0 * hype_usd
-                p1_usd = hype_usd
-            elif t0_sym in hype_syms:
-                p0_usd = hype_usd
-                p1_usd = token0_per_token1 * hype_usd
-            else:
-                p0_usd = 0.0
-                p1_usd = 0.0
-            pool_tvl_usd = bal0 * p0_usd + bal1 * p1_usd
-            # Pool active liquidity
-            pool_liquidity = pool_contract.functions.liquidity().call()
-            # Scan Swap events: HyperEVM caps get_logs at 1000 blocks (~2s/block).
-            # Fetch 2 pages of 1000 blocks (~2000 blocks ≈ ~1.1h) then extrapolate to 24h.
-            latest_block  = w3.eth.block_number
-            PAGE          = 1000
-            PAGES         = 2
-            BLOCKS_SAMPLED = PAGE * PAGES  # ~2000 blocks ≈ ~1.1h
-            BLOCKS_PER_DAY = 43200         # ~86400s / 2s per block
-            swap_contract = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=SWAP_EVENT_ABI)
-            all_events = []
-            for i in range(PAGES):
-                to_blk   = latest_block - i * PAGE
-                from_blk = max(0, to_blk - PAGE + 1)
-                chunk = swap_contract.events.Swap.get_logs(fromBlock=from_blk, toBlock=to_blk)
-                all_events.extend(chunk)
-            vol0_raw = sum(abs(int(e["args"]["amount0"])) / (10 ** dec0) for e in all_events)
-            vol1_raw = sum(abs(int(e["args"]["amount1"])) / (10 ** dec1) for e in all_events)
-            vol_sampled = vol0_raw * p0_usd + vol1_raw * p1_usd
-            # Extrapolate sampled window to 24h
-            vol_usd = vol_sampled * (BLOCKS_PER_DAY / BLOCKS_SAMPLED) if BLOCKS_SAMPLED > 0 else 0
-            import time as _time
+        import time as _time
+        _cache_key = pool_addr.lower()
+        _cached    = _hyperevm_pool_cache.get(_cache_key, {})
+        if _cached and (_time.time() - _cached.get("ts", 0)) < 900:
+            pool_tvl_usd   = _cached["tvl"]
+            pool_liquidity = _cached["liq"]
+            vol_usd_cached = _cached["vol"]
             today_ts = int(_time.time()) // 86400 * 86400
             if pool_tvl_usd > 0:
                 fee_tier_dec = fee / 1_000_000
-                fees_24h = vol_usd * fee_tier_dec
                 pool_day_data = [{
                     "date":      today_ts,
-                    "volumeUSD": str(round(vol_usd, 2)),
-                    "feesUSD":   str(round(fees_24h, 4)),
+                    "volumeUSD": str(round(vol_usd_cached, 2)),
+                    "feesUSD":   str(round(vol_usd_cached * fee_tier_dec, 4)),
                     "tvlUSD":    str(round(pool_tvl_usd, 2)),
                 }]
-            app.logger.info("HyperEVM pool TVL=%.2f vol24h_extrap=%.2f events=%d", pool_tvl_usd, vol_usd, len(all_events))
-        except Exception as _e:
-            app.logger.warning("HyperEVM TVL/volume fetch failed: %s", _e)
+            app.logger.info("HyperEVM pool stats from cache: TVL=%.2f vol=%.2f", pool_tvl_usd, vol_usd_cached)
+        else:
+            try:
+                erc20_t0 = w3.eth.contract(address=Web3.to_checksum_address(token0_addr), abi=ERC20_ABI_MIN)
+                erc20_t1 = w3.eth.contract(address=Web3.to_checksum_address(token1_addr), abi=ERC20_ABI_MIN)
+                bal0_raw = erc20_t0.functions.balanceOf(Web3.to_checksum_address(pool_addr)).call()
+                bal1_raw = erc20_t1.functions.balanceOf(Web3.to_checksum_address(pool_addr)).call()
+                bal0 = bal0_raw / (10 ** dec0)
+                bal1 = bal1_raw / (10 ** dec1)
+                hype_usd = _get_hype_price_usd()
+                hype_syms = {"WHYPE", "HYPE"}
+                t0_sym = t0["symbol"].upper()
+                t1_sym = t1["symbol"].upper()
+                if t1_sym in hype_syms:
+                    p0_usd = token1_per_token0 * hype_usd
+                    p1_usd = hype_usd
+                elif t0_sym in hype_syms:
+                    p0_usd = hype_usd
+                    p1_usd = token0_per_token1 * hype_usd
+                else:
+                    p0_usd = 0.0
+                    p1_usd = 0.0
+                pool_tvl_usd   = bal0 * p0_usd + bal1 * p1_usd
+                pool_liquidity = pool_contract.functions.liquidity().call()
+                # Scan Swap events in 1000-block pages (HyperEVM RPC limit).
+                # 2 pages ≈ 2000 blocks ≈ ~1.1h; extrapolate to 24h.
+                latest_block   = w3.eth.block_number
+                PAGE           = 1000
+                PAGES          = 2
+                BLOCKS_SAMPLED = PAGE * PAGES
+                BLOCKS_PER_DAY = 43200
+                swap_contract  = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=SWAP_EVENT_ABI)
+                all_events = []
+                for i in range(PAGES):
+                    to_blk   = latest_block - i * PAGE
+                    from_blk = max(0, to_blk - PAGE + 1)
+                    chunk = swap_contract.events.Swap.get_logs(fromBlock=from_blk, toBlock=to_blk)
+                    all_events.extend(chunk)
+                    _time.sleep(0.3)   # avoid rate limit between pages
+                vol0_raw    = sum(abs(int(e["args"]["amount0"])) / (10 ** dec0) for e in all_events)
+                vol1_raw    = sum(abs(int(e["args"]["amount1"])) / (10 ** dec1) for e in all_events)
+                vol_sampled = vol0_raw * p0_usd + vol1_raw * p1_usd
+                vol_usd     = vol_sampled * (BLOCKS_PER_DAY / BLOCKS_SAMPLED) if BLOCKS_SAMPLED > 0 else 0
+                # Store to cache
+                _hyperevm_pool_cache[_cache_key] = {
+                    "tvl": pool_tvl_usd, "vol": vol_usd,
+                    "liq": pool_liquidity, "ts": _time.time(),
+                }
+                today_ts = int(_time.time()) // 86400 * 86400
+                if pool_tvl_usd > 0:
+                    fee_tier_dec = fee / 1_000_000
+                    pool_day_data = [{
+                        "date":      today_ts,
+                        "volumeUSD": str(round(vol_usd, 2)),
+                        "feesUSD":   str(round(vol_usd * fee_tier_dec, 4)),
+                        "tvlUSD":    str(round(pool_tvl_usd, 2)),
+                    }]
+                app.logger.info("HyperEVM pool TVL=%.2f vol24h_extrap=%.2f events=%d", pool_tvl_usd, vol_usd, len(all_events))
+            except Exception as _e:
+                app.logger.warning("HyperEVM TVL/volume fetch failed: %s", _e)
 
         return {
             "id":        str(position_id),
@@ -1085,6 +1105,7 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
 # ── ETH price cache ───────────────────────────────────────────────────────────
 _eth_price_cache: dict = {"price": 0.0, "ts": 0}
 _hype_price_cache: dict = {"price": 0.0, "ts": 0}
+_hyperevm_pool_cache: dict = {}   # pool_addr -> {"tvl": float, "vol": float, "liq": int, "ts": float}
 
 def _get_hype_price_usd() -> float:
     """Fetch HYPE/USD price from CoinGecko with 5-min in-memory cache."""
