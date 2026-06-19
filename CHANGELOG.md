@@ -1,3 +1,33 @@
+## 2026-06-19
+
+### lp-tracker (lptracker.info)
+
+**Bug Fixes**
+- Fixed positions not showing — removed broken `SUBGRAPH_PROXY` env var (Fly.io proxy was returning empty responses); direct Graph access works fine
+- Fixed `5343687` chain assignment (`base-pancake` → `base`) in `saved_positions.json`
+- Fixed duplicate background threads — added `fcntl` file lock so only one gunicorn worker starts alert/snapshot/wallet-scan threads
+- Fixed background threads never starting under gunicorn — moved thread startup to module level (was inside `if __name__ == "__main__"` which gunicorn skips)
+- Fixed NPM "Invalid token ID" log noise — skip NPM call for zero-liquidity (burned) positions
+- Removed duplicate `2041851/base` entry from `saved_positions.json` and `alert_settings.json`
+- Removed stale `5345155/base` from `alert_settings.json` (burned position spamming alerts)
+
+**Features**
+- Added `_subgraph_post()` helper with retry logic (3 attempts, 2s delay) and direct Graph URL fallback on non-200 responses
+- Added `PROJECT.md` — full project documentation covering chains, files, env vars, position types, subgraph architecture
+
+**Data / Maintenance**
+- Added position `5375169` (WETH/USDC, vfat wrapped) manually — vfat/Sickle positions cannot be auto-discovered (NFT owner is wrapper contract, not user wallet)
+- Added position `5369598` (WETH/USDC 0.05%) manually
+- Confirmed wallet scan correctly runs hourly but cannot find vfat-wrapped positions by design
+- `5343687` correctly closed by rebalance tracker after position was rebalanced on-chain
+
+### Pending
+- USOL/WHYPE APR not showing (HyperEVM RPC-only position) — fix in next session
+- IL/ETH price charts need more hourly snapshots to render meaningful data (accumulating)
+- `collected_fees_token0 == collected_fees_token1` warning on 2041851 — subgraph artifact, low priority
+
+---
+
 ## 2026-06-18
 
 ### lp-tracker (lptracker.info)
