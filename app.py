@@ -566,85 +566,33 @@ def fetch_position_hyperevm(position_id: str) -> dict | None:
         token1_per_token0 = raw_price * (10 ** dec0) / (10 ** dec1)
         token0_per_token1 = 1 / token1_per_token0 if token1_per_token0 else 0
 
-        # ── Pool APR via fee growth (no extra RPC calls needed) ───────────
-        # We already have fg0/fg1 (current feeGrowthGlobal) and position liquidity.
-        # Estimate pool TVL from position value + liquidity share.
-        # Estimate 24h fees from the rate of fee growth since position entry.
+        # ── Pool APR via GeckoTerminal (TVL + 24h volume) ────────────────
         import time as _time
         pool_day_data  = []
-        pool_liquidity = liquidity   # position liquidity as proxy (pool liq needs extra call)
+        pool_liquidity = liquidity
         pool_tvl_usd   = 0.0
+        _GT_URL = f"https://api.geckoterminal.com/api/v2/networks/hyperevm/pools/{pool_addr.lower()}"
         try:
-            hype_usd  = _get_hype_price_usd()
-            hype_syms = {"WHYPE", "HYPE"}
-            t0_sym = t0["symbol"].upper()
-            t1_sym = t1["symbol"].upper()
-            if t1_sym in hype_syms:
-                p0_usd = token1_per_token0 * hype_usd
-                p1_usd = hype_usd
-            elif t0_sym in hype_syms:
-                p0_usd = hype_usd
-                p1_usd = token0_per_token1 * hype_usd
-            else:
-                p0_usd = 0.0
-                p1_usd = 0.0
-
-            # Use lp_entries snapshot to get fee growth at entry time
-            import json as _json
-            _entries = {}
-            try:
-                with open("/data/lp_entries.json") as _f:
-                    _entries = _json.load(_f)
-            except Exception:
-                pass
-            _entry = _entries.get(str(position_id), {})
-            fg0_entry = int(_entry.get("fg0", 0))
-            fg1_entry = int(_entry.get("fg1", 0))
-            entry_ts  = int(_entry.get("entry_time", 0))
-
-            # Update entry snapshot with current fg values for next run
-            if _entry and (fg0_entry == 0 or fg1_entry == 0):
-                _entry["fg0"] = str(fg0)
-                _entry["fg1"] = str(fg1)
-                _entries[str(position_id)] = _entry
-                try:
-                    with open("/data/lp_entries.json", "w") as _f:
-                        _json.dump(_entries, _f)
-                except Exception:
-                    pass
-
-            age_secs = _time.time() - entry_ts if entry_ts else 0
-            if fg0_entry > 0 and age_secs > 3600 and liquidity > 0:
-                # Fee growth delta since entry, scaled by position liquidity (Q128)
-                Q128 = 2 ** 128
-                d_fg0 = (fg0 - fg0_entry) % Q128
-                d_fg1 = (fg1 - fg1_entry) % Q128
-                fees0_total = (d_fg0 * liquidity / Q128) / (10 ** dec0)
-                fees1_total = (d_fg1 * liquidity / Q128) / (10 ** dec1)
-                fees_usd_total = fees0_total * p0_usd + fees1_total * p1_usd
-                # Annualise
-                pos_value = (
-                    (int(owed0) / (10 ** dec0) + (int(fg0_last) * liquidity / Q128) / (10 ** dec0)) * p0_usd
-                    + (int(owed1) / (10 ** dec1) + (int(fg1_last) * liquidity / Q128) / (10 ** dec1)) * p1_usd
-                )
-                # Use simpler: just annualise fees_usd_total / age
-                daily_fees = fees_usd_total / (age_secs / 86400) if age_secs > 0 else 0
-                pos_val_approx = (
-                    int(owed0) / (10 ** dec0) * p0_usd
-                    + int(owed1) / (10 ** dec1) * p1_usd
-                )
+            _gt_resp = requests.get(_GT_URL, timeout=6,
+                                    headers={"Accept": "application/json;version=20230302"})
+            if _gt_resp.status_code == 200:
+                _gt_attrs = _gt_resp.json().get("data", {}).get("attributes", {})
+                pool_tvl_usd = float(_gt_attrs.get("reserve_in_usd") or 0)
+                vol_24h      = float((_gt_attrs.get("volume_usd") or {}).get("h24") or 0)
                 today_ts = int(_time.time()) // 86400 * 86400
-                pool_day_data = [{
-                    "date":      today_ts,
-                    "volumeUSD": "0",
-                    "feesUSD":   str(round(daily_fees, 6)),
-                    "tvlUSD":    "0",
-                    "_fee_growth_apr": True,
-                }]
-                app.logger.info("HyperEVM fee-growth APR: fees_total=%.6f daily=%.6f age_h=%.1f",
-                                fees_usd_total, daily_fees, age_secs / 3600)
+                if pool_tvl_usd > 0 and vol_24h > 0:
+                    fee_tier_dec = fee / 1_000_000
+                    pool_day_data = [{
+                        "date":      today_ts,
+                        "volumeUSD": str(round(vol_24h, 2)),
+                        "feesUSD":   str(round(vol_24h * fee_tier_dec, 4)),
+                        "tvlUSD":    str(round(pool_tvl_usd, 2)),
+                    }]
+                app.logger.info("HyperEVM GeckoTerminal: TVL=%.2f vol24h=%.2f", pool_tvl_usd, vol_24h)
+            else:
+                app.logger.warning("GeckoTerminal %s for pool %s", _gt_resp.status_code, pool_addr)
         except Exception as _e:
-            app.logger.warning("HyperEVM fee-growth calc failed: %s", _e)
+            app.logger.warning("GeckoTerminal pool fetch failed: %s", _e)
 
 
         return {
