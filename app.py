@@ -1460,6 +1460,14 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
         if age_days >= 1:
             real_apr = (pnl_pct / 100) / (age_days / 365) * 100
 
+    # RPC-only fallback for apr_estimate: annualize uncollected fees by age.
+    # This is position-specific (not pool-level) and requires no extra RPC calls.
+    if apr_estimate is None and is_rpc_only and fees_usd > 0 and entry_ts and value_usd > 0:
+        age_days_apr = (time.time() - entry_ts) / 86400
+        if age_days_apr >= 0.5:   # need at least half a day of data
+            daily_fees_est = fees_usd / age_days_apr
+            apr_estimate = (daily_fees_est * 365 / value_usd) * 100 if in_range else 0.0
+
     # ── Price display inversion ───────────────────────────────────────────
     # When price is tiny (< 0.01), the pair is quoted in the wrong direction
     # for human readability. Invert to show token0-per-token1 instead.
