@@ -1,3 +1,23 @@
+## 2026-06-19 (session 2)
+
+### lp-tracker (lptracker.info)
+
+**Features**
+- Added `apr_estimate` for HyperEVM RPC-only positions — computed from uncollected fees / position age, annualized; no extra RPC calls required, updates naturally as fees accumulate
+- Stored `fg0`/`fg1` (feeGrowthGlobal snapshots) in `lp_entries.json` at first load for future fee-growth delta tracking
+
+**Bug Fixes / Investigations**
+- Confirmed `real_apr` was already computing correctly for USOL/WHYPE (negative due to HYPE price decline since entry, not a bug)
+- Confirmed entry snapshot (`entry_usd`, `entry_time`) was correctly recorded in `/data/lp_entries.json`
+- Attempted on-chain TVL/volume via `balanceOf` + `Swap` event scanning — blocked by HyperEVM public RPC rate limiting (`-32005`) and 1000-block `get_logs` cap; abandoned in favour of fees-based approach
+
+**Pending**
+- `advertised_apr` (pool-level) still `None` for USOL/WHYPE — requires non-rate-limited RPC or indexer
+- GMX take-profit tracking (partial-close `PositionDecrease` events) still outstanding
+- Rotate PAT before next session
+
+---
+
 ## 2026-06-19
 
 ### lp-tracker (lptracker.info)
