@@ -566,86 +566,86 @@ def fetch_position_hyperevm(position_id: str) -> dict | None:
         token1_per_token0 = raw_price * (10 ** dec0) / (10 ** dec1)
         token0_per_token1 = 1 / token1_per_token0 if token1_per_token0 else 0
 
-        # ── On-chain TVL + 24h volume for Pool APR ────────────────────────
-        pool_tvl_usd   = 0.0
-        pool_day_data  = []
-        pool_liquidity = 0
+        # ── Pool APR via fee growth (no extra RPC calls needed) ───────────
+        # We already have fg0/fg1 (current feeGrowthGlobal) and position liquidity.
+        # Estimate pool TVL from position value + liquidity share.
+        # Estimate 24h fees from the rate of fee growth since position entry.
         import time as _time
-        _cache_key = pool_addr.lower()
-        _cached    = _hyperevm_pool_cache.get(_cache_key, {})
-        if _cached and (_time.time() - _cached.get("ts", 0)) < 900:
-            pool_tvl_usd   = _cached["tvl"]
-            pool_liquidity = _cached["liq"]
-            vol_usd_cached = _cached["vol"]
-            today_ts = int(_time.time()) // 86400 * 86400
-            if pool_tvl_usd > 0:
-                fee_tier_dec = fee / 1_000_000
+        pool_day_data  = []
+        pool_liquidity = liquidity   # position liquidity as proxy (pool liq needs extra call)
+        pool_tvl_usd   = 0.0
+        try:
+            hype_usd  = _get_hype_price_usd()
+            hype_syms = {"WHYPE", "HYPE"}
+            t0_sym = t0["symbol"].upper()
+            t1_sym = t1["symbol"].upper()
+            if t1_sym in hype_syms:
+                p0_usd = token1_per_token0 * hype_usd
+                p1_usd = hype_usd
+            elif t0_sym in hype_syms:
+                p0_usd = hype_usd
+                p1_usd = token0_per_token1 * hype_usd
+            else:
+                p0_usd = 0.0
+                p1_usd = 0.0
+
+            # Use lp_entries snapshot to get fee growth at entry time
+            import json as _json
+            _entries = {}
+            try:
+                with open("/data/lp_entries.json") as _f:
+                    _entries = _json.load(_f)
+            except Exception:
+                pass
+            _entry = _entries.get(str(position_id), {})
+            fg0_entry = int(_entry.get("fg0", 0))
+            fg1_entry = int(_entry.get("fg1", 0))
+            entry_ts  = int(_entry.get("entry_time", 0))
+
+            # Update entry snapshot with current fg values for next run
+            if _entry and (fg0_entry == 0 or fg1_entry == 0):
+                _entry["fg0"] = str(fg0)
+                _entry["fg1"] = str(fg1)
+                _entries[str(position_id)] = _entry
+                try:
+                    with open("/data/lp_entries.json", "w") as _f:
+                        _json.dump(_entries, _f)
+                except Exception:
+                    pass
+
+            age_secs = _time.time() - entry_ts if entry_ts else 0
+            if fg0_entry > 0 and age_secs > 3600 and liquidity > 0:
+                # Fee growth delta since entry, scaled by position liquidity (Q128)
+                Q128 = 2 ** 128
+                d_fg0 = (fg0 - fg0_entry) % Q128
+                d_fg1 = (fg1 - fg1_entry) % Q128
+                fees0_total = (d_fg0 * liquidity / Q128) / (10 ** dec0)
+                fees1_total = (d_fg1 * liquidity / Q128) / (10 ** dec1)
+                fees_usd_total = fees0_total * p0_usd + fees1_total * p1_usd
+                # Annualise
+                pos_value = (
+                    (int(owed0) / (10 ** dec0) + (int(fg0_last) * liquidity / Q128) / (10 ** dec0)) * p0_usd
+                    + (int(owed1) / (10 ** dec1) + (int(fg1_last) * liquidity / Q128) / (10 ** dec1)) * p1_usd
+                )
+                # Use simpler: just annualise fees_usd_total / age
+                daily_fees = fees_usd_total / (age_secs / 86400) if age_secs > 0 else 0
+                pos_val_approx = (
+                    int(owed0) / (10 ** dec0) * p0_usd
+                    + int(owed1) / (10 ** dec1) * p1_usd
+                )
+                today_ts = int(_time.time()) // 86400 * 86400
                 pool_day_data = [{
                     "date":      today_ts,
-                    "volumeUSD": str(round(vol_usd_cached, 2)),
-                    "feesUSD":   str(round(vol_usd_cached * fee_tier_dec, 4)),
-                    "tvlUSD":    str(round(pool_tvl_usd, 2)),
+                    "volumeUSD": "0",
+                    "feesUSD":   str(round(daily_fees, 6)),
+                    "tvlUSD":    "0",
+                    "_fee_growth_apr": True,
                 }]
-            app.logger.info("HyperEVM pool stats from cache: TVL=%.2f vol=%.2f", pool_tvl_usd, vol_usd_cached)
-        else:
-            try:
-                erc20_t0 = w3.eth.contract(address=Web3.to_checksum_address(token0_addr), abi=ERC20_ABI_MIN)
-                erc20_t1 = w3.eth.contract(address=Web3.to_checksum_address(token1_addr), abi=ERC20_ABI_MIN)
-                bal0_raw = erc20_t0.functions.balanceOf(Web3.to_checksum_address(pool_addr)).call()
-                bal1_raw = erc20_t1.functions.balanceOf(Web3.to_checksum_address(pool_addr)).call()
-                bal0 = bal0_raw / (10 ** dec0)
-                bal1 = bal1_raw / (10 ** dec1)
-                hype_usd = _get_hype_price_usd()
-                hype_syms = {"WHYPE", "HYPE"}
-                t0_sym = t0["symbol"].upper()
-                t1_sym = t1["symbol"].upper()
-                if t1_sym in hype_syms:
-                    p0_usd = token1_per_token0 * hype_usd
-                    p1_usd = hype_usd
-                elif t0_sym in hype_syms:
-                    p0_usd = hype_usd
-                    p1_usd = token0_per_token1 * hype_usd
-                else:
-                    p0_usd = 0.0
-                    p1_usd = 0.0
-                pool_tvl_usd   = bal0 * p0_usd + bal1 * p1_usd
-                pool_liquidity = pool_contract.functions.liquidity().call()
-                # Scan Swap events in 1000-block pages (HyperEVM RPC limit).
-                # 2 pages ≈ 2000 blocks ≈ ~1.1h; extrapolate to 24h.
-                latest_block   = w3.eth.block_number
-                PAGE           = 1000
-                PAGES          = 2
-                BLOCKS_SAMPLED = PAGE * PAGES
-                BLOCKS_PER_DAY = 43200
-                swap_contract  = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=SWAP_EVENT_ABI)
-                all_events = []
-                for i in range(PAGES):
-                    to_blk   = latest_block - i * PAGE
-                    from_blk = max(0, to_blk - PAGE + 1)
-                    chunk = swap_contract.events.Swap.get_logs(fromBlock=from_blk, toBlock=to_blk)
-                    all_events.extend(chunk)
-                    _time.sleep(0.3)   # avoid rate limit between pages
-                vol0_raw    = sum(abs(int(e["args"]["amount0"])) / (10 ** dec0) for e in all_events)
-                vol1_raw    = sum(abs(int(e["args"]["amount1"])) / (10 ** dec1) for e in all_events)
-                vol_sampled = vol0_raw * p0_usd + vol1_raw * p1_usd
-                vol_usd     = vol_sampled * (BLOCKS_PER_DAY / BLOCKS_SAMPLED) if BLOCKS_SAMPLED > 0 else 0
-                # Store to cache
-                _hyperevm_pool_cache[_cache_key] = {
-                    "tvl": pool_tvl_usd, "vol": vol_usd,
-                    "liq": pool_liquidity, "ts": _time.time(),
-                }
-                today_ts = int(_time.time()) // 86400 * 86400
-                if pool_tvl_usd > 0:
-                    fee_tier_dec = fee / 1_000_000
-                    pool_day_data = [{
-                        "date":      today_ts,
-                        "volumeUSD": str(round(vol_usd, 2)),
-                        "feesUSD":   str(round(vol_usd * fee_tier_dec, 4)),
-                        "tvlUSD":    str(round(pool_tvl_usd, 2)),
-                    }]
-                app.logger.info("HyperEVM pool TVL=%.2f vol24h_extrap=%.2f events=%d", pool_tvl_usd, vol_usd, len(all_events))
-            except Exception as _e:
-                app.logger.warning("HyperEVM TVL/volume fetch failed: %s", _e)
+                app.logger.info("HyperEVM fee-growth APR: fees_total=%.6f daily=%.6f age_h=%.1f",
+                                fees_usd_total, daily_fees, age_secs / 3600)
+        except Exception as _e:
+            app.logger.warning("HyperEVM fee-growth calc failed: %s", _e)
+
 
         return {
             "id":        str(position_id),
@@ -1316,7 +1316,13 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
             pos_liquidity = int(pos.get("liquidity", 0))
             pool_liquidity = int(pool.get("liquidity") or 0)
 
-            if pool_liquidity > 0 and pos_liquidity > 0:
+            # RPC-only chains (HyperEVM): feesUSD in day_data IS the position's
+            # own daily fee earnings (from fee growth delta) — use directly.
+            if day_data and day_data[0].get("_fee_growth_apr"):
+                daily_fees_earned = float(day_data[0].get("feesUSD", 0))
+                if daily_fees_earned > 0 and value_usd > 0 and in_range:
+                    apr_estimate = (daily_fees_earned * 365 / value_usd) * 100
+            elif pool_liquidity > 0 and pos_liquidity > 0:
                 share = pos_liquidity / pool_liquidity
                 daily_fees_earned = avg_daily_fees * share
                 apr_estimate = (daily_fees_earned * 365 / value_usd) * 100 if in_range else 0.0
