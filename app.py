@@ -1261,8 +1261,13 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
                 advertised_apr = (avg_daily_fees * 365 / pool_tvl) * 100
 
             # Position-specific APR: uses liquidity share for accuracy
-            pos_liquidity = int(pos.get("liquidity", 0))
+            pos_liquidity  = int(pos.get("liquidity", 0))
             pool_liquidity = int(pool.get("liquidity") or 0)
+            # For RPC-only chains pool["liquidity"] = position liquidity (unreliable for share calc).
+            # Force TVL-share path by zeroing pool_liquidity when rpc_only.
+            _chain_cfg = CHAINS.get(chain_key, {})
+            if _chain_cfg.get("rpc_only"):
+                pool_liquidity = 0
 
             # RPC-only chains (HyperEVM): feesUSD in day_data IS the position's
             # own daily fee earnings (from fee growth delta) — use directly.
