@@ -1,3 +1,17 @@
+## 2026-06-19 (session 4)
+
+### lp-tracker (lptracker.info)
+
+**Bug Fixes**
+- Fixed `apr_estimate` regression for all subgraph chains (Base, PancakeSwap, Uni, etc.) — `chain_key` was referenced before assignment inside APR try/except block; `NameError` was silently swallowed, leaving `apr_estimate = None` for every non-HyperEVM position
+- All 6 positions now showing Pool APR and Real APR correctly
+
+**Pending**
+- Rotate PAT before next session
+- GMX take-profit tracking (next)
+
+---
+
 ## 2026-06-19 (session 3)
 
 ### lp-tracker (lptracker.info)
