@@ -1265,8 +1265,7 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
             pool_liquidity = int(pool.get("liquidity") or 0)
             # For RPC-only chains pool["liquidity"] = position liquidity (unreliable for share calc).
             # Force TVL-share path by zeroing pool_liquidity when rpc_only.
-            _chain_cfg = CHAINS.get(chain_key, {})
-            if _chain_cfg.get("rpc_only"):
+            if CHAINS.get(pos.get("_chain", ""), {}).get("rpc_only"):
                 pool_liquidity = 0
 
             # RPC-only chains (HyperEVM): feesUSD in day_data IS the position's
