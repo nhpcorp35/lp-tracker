@@ -593,17 +593,28 @@ def fetch_position_hyperevm(position_id: str) -> dict | None:
             pool_tvl_usd = bal0 * p0_usd + bal1 * p1_usd
             # Pool active liquidity
             pool_liquidity = pool_contract.functions.liquidity().call()
-            # Scan Swap events: last 7200 blocks (~24h at ~12s/block on HyperEVM)
-            latest_block = w3.eth.block_number
-            from_block   = max(0, latest_block - 7200)
+            # Scan Swap events: HyperEVM caps get_logs at 1000 blocks (~2s/block).
+            # Fetch 2 pages of 1000 blocks (~2000 blocks ≈ ~1.1h) then extrapolate to 24h.
+            latest_block  = w3.eth.block_number
+            PAGE          = 1000
+            PAGES         = 2
+            BLOCKS_SAMPLED = PAGE * PAGES  # ~2000 blocks ≈ ~1.1h
+            BLOCKS_PER_DAY = 43200         # ~86400s / 2s per block
             swap_contract = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=SWAP_EVENT_ABI)
-            events = swap_contract.events.Swap.get_logs(fromBlock=from_block, toBlock=latest_block)
-            vol0 = sum(abs(int(e["args"]["amount0"])) / (10 ** dec0) for e in events)
-            vol1 = sum(abs(int(e["args"]["amount1"])) / (10 ** dec1) for e in events)
-            vol_usd = vol0 * p0_usd + vol1 * p1_usd
+            all_events = []
+            for i in range(PAGES):
+                to_blk   = latest_block - i * PAGE
+                from_blk = max(0, to_blk - PAGE + 1)
+                chunk = swap_contract.events.Swap.get_logs(fromBlock=from_blk, toBlock=to_blk)
+                all_events.extend(chunk)
+            vol0_raw = sum(abs(int(e["args"]["amount0"])) / (10 ** dec0) for e in all_events)
+            vol1_raw = sum(abs(int(e["args"]["amount1"])) / (10 ** dec1) for e in all_events)
+            vol_sampled = vol0_raw * p0_usd + vol1_raw * p1_usd
+            # Extrapolate sampled window to 24h
+            vol_usd = vol_sampled * (BLOCKS_PER_DAY / BLOCKS_SAMPLED) if BLOCKS_SAMPLED > 0 else 0
             import time as _time
             today_ts = int(_time.time()) // 86400 * 86400
-            if vol_usd > 0 and pool_tvl_usd > 0:
+            if pool_tvl_usd > 0:
                 fee_tier_dec = fee / 1_000_000
                 fees_24h = vol_usd * fee_tier_dec
                 pool_day_data = [{
@@ -612,7 +623,7 @@ def fetch_position_hyperevm(position_id: str) -> dict | None:
                     "feesUSD":   str(round(fees_24h, 4)),
                     "tvlUSD":    str(round(pool_tvl_usd, 2)),
                 }]
-            app.logger.info("HyperEVM pool TVL=%.2f vol24h=%.2f events=%d", pool_tvl_usd, vol_usd, len(events))
+            app.logger.info("HyperEVM pool TVL=%.2f vol24h_extrap=%.2f events=%d", pool_tvl_usd, vol_usd, len(all_events))
         except Exception as _e:
             app.logger.warning("HyperEVM TVL/volume fetch failed: %s", _e)
 
