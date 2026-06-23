@@ -350,15 +350,14 @@
 </main>
 
 <section id="closed-section">
-  <div class="closed-summary-grid" id="closed-summary-grid"></div>
+  <div class="summary" id="closed-summary-grid" style="margin-bottom:20px"></div>
   <div style="overflow-x:auto">
     <table>
       <thead>
         <tr>
           <th>Pair</th>
           <th>NFT ID</th>
-          <th>Opened</th>
-          <th>Closed</th>
+          <th>Period</th>
           <th>Duration</th>
           <th>Value</th>
           <th>Range</th>
@@ -1156,9 +1155,9 @@ function renderClosed(data) {
     ['Avg Duration', fmtDuration(Math.round(avgDur)), ''],
     ['Win Rate', rows.length ? Math.round(winners/rows.length*100)+'%' : '—', winners/rows.length >= 0.5 ? 'var(--green)' : 'var(--amber)'],
   ].map(([label, val, color]) => `
-    <div class="closed-summary-card">
-      <div class="closed-summary-label">${label}</div>
-      <div class="closed-summary-value" style="${color ? 'color:' + color : ''}">${val}</div>
+    <div class="summary-stat">
+      <div class="summary-label">${label}</div>
+      <div class="summary-value" style="${color ? 'color:' + color : ''}">${val}</div>
     </div>`).join('');
 
   if (!rows.length) return;
@@ -1198,19 +1197,23 @@ function renderClosed(data) {
 
     return `<tr style="cursor:default">
       <td>
-        <span style="font-weight:600;color:#fff">${pair}</span>
-        <span class="fee-badge" style="font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue);margin-left:4px">${feePct}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-weight:600;color:var(--text)">${pair}</span>
+          <span style="font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue)">${feePct}</span>
+        </div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">${cl}</div>
       </td>
       <td style="font-family:var(--mono);color:var(--muted);font-size:11px">#${r.nft_id}</td>
-      <td style="color:var(--muted);font-size:12px">${fmtTs(r.open_ts)}</td>
-      <td style="color:var(--muted);font-size:12px">${fmtTs(r.close_ts)}</td>
-      <td style="font-family:var(--mono);font-size:12px">${fmtDuration(r.duration_sec)}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--muted)">
+        <div>${fmtTs(r.open_ts)}</div>
+        <div style="color:var(--muted);opacity:0.6">→ ${fmtTs(r.close_ts)}</div>
+      </td>
+      <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${fmtDuration(r.duration_sec)}</td>
       <td>${valStr}${priceStr}</td>
       <td>${rangeBar}</td>
-      <td>${feesStr}</td>
-      <td>${pnlStr}</td>
-      <td style="font-size:11px;color:${reasonColor}">${reasonLabel}</td>
+      <td style="font-family:var(--mono);font-size:12px">${feesStr}</td>
+      <td style="font-family:var(--mono);font-size:12px">${pnlStr}</td>
+      <td><span style="font-size:11px;color:${reasonColor};white-space:nowrap">${reasonLabel}</span></td>
     </tr>`;
   }).join('');
 }
