@@ -2063,7 +2063,7 @@ def delete_saved_position(pos_id, chain):
                 pos_id, chain, int(time.time()),
                 final_price = p.get("current_price") or 0,
                 final_value = p.get("value_usd") or 0,
-                reason      = "closed",
+                reason      = "removed",
             )
             app.logger.info("Closed rebalance cycle for deleted position %s on %s", pos_id, chain)
     except Exception as e:
@@ -2504,7 +2504,7 @@ def _close_open_cycle(pos_id: str, chain: str, ts: int, final_price: float,
                       final_value: float, reason: str = "closed"):
     """
     Close the open rebalance cycle for pos_id with final P&L.
-    reason: "closed" (burned) or "rebalanced" (new NFT opened on same pool).
+    reason: "closed" (burned/auto), "removed" (manually deleted), or "rebalanced" (new NFT opened on same pool).
     Also appends a closure event to range_events last_status.
     """
     data   = _load_rebalances()
