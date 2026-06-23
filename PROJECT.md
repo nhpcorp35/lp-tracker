@@ -185,12 +185,12 @@ Two background threads start at gunicorn startup (file-locked so only one worker
 
 | ID | Pair | Chain | Platform | Notes |
 |---|---|---|---|---|
-| 5375169 | WETH/USDC | base | vfat | wrapped — manual add only |
+| 4343687 | WETH/USDC | base | vfat | wrapped — manual add only |
+| 2041851 | USDC/cbBTC | base-pancake | maxfi | wrapped — manual add only |
+| 493853 | USOL/WHYPE | hyperevm | vfat | RPC-only, no subgraph |
+| 3042283 | CAKE/WETH | base-pancake | snuggle.fi | wrapped — manual add only |
+| 2042120 | WETH/cbBTC | base-pancake | snuggle.fi | wrapped — manual add only |
 | 5389970 | WETH/USDC | base | maxfi | wrapped — manual add only |
-| 2041851 | USDC/cbBTC | base-pancake | snuggle.fi | wrapped — manual add only |
-| 2042283 | CAKE/WETH | base-pancake | snuggle.fi | wrapped — manual add only |
-| 2042120 | WETH/cbBTC | base-pancake | maxfi | wrapped — manual add only |
-| 493853 | USOL/WHYPE | hyperevm | ProjectX | RPC-only, no subgraph |
 
 Auto-closed (moved to Closed tab): 5343687, 5345155, 5369598
 Previously closed (history): 5279494, 5293463
