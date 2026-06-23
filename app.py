@@ -146,10 +146,25 @@ def _load_saved_positions() -> list:
     return []
 
 
+def _sync_saved_to_watched(saved: list):
+    """Keep watched_positions in alert_settings in sync with saved_positions.
+    Replaces watched list entirely so adds and removals are both handled."""
+    try:
+        settings = _load_alert_settings()
+        settings["watched_positions"] = [
+            {"position_id": s["id"], "chain": s["chain"]}
+            for s in saved
+        ]
+        _save_alert_settings(settings)
+    except Exception as e:
+        app.logger.warning("Could not sync watched positions: %s", e)
+
+
 def _save_saved_positions(positions: list):
     try:
         with open(SAVED_POSITIONS_FILE, "w") as f:
             json.dump(positions, f, indent=2)
+        _sync_saved_to_watched(positions)
     except Exception as e:
         app.logger.warning("Could not save saved positions: %s", e)
 
@@ -2534,10 +2549,9 @@ def _new_cycle(pos_id: str, ts: int, p: dict) -> dict:
 
 
 def _take_snapshot():
-    """Fetch all watched positions and record a portfolio snapshot."""
+    """Fetch all saved positions and record a portfolio snapshot."""
     try:
-        settings = _load_alert_settings()
-        watched  = settings.get("watched_positions", [])
+        watched = [{"position_id": s["id"], "chain": s["chain"]} for s in _load_saved_positions()]
         if not watched:
             return
 
