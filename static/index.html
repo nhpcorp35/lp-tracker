@@ -599,6 +599,7 @@ function renderRebalances(data) {
       const openDate = new Date(c.open_ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"});
       const reasonLabel = c.close_reason === "closed" ? " <span style='font-size:9px;color:var(--muted)'>(closed)</span>"
                         : c.close_reason === "rebalanced" ? " <span style='font-size:9px;color:var(--blue)'>(rebalanced)</span>"
+                        : c.close_reason === "removed" ? " <span style='font-size:9px;color:var(--amber)'>(removed)</span>"
                         : "";
       const closeDate = c.close_ts
         ? new Date(c.close_ts*1000).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) + reasonLabel
@@ -1170,8 +1171,8 @@ function renderClosed(data) {
     const pnlStr     = r.pnl_usd != null ? `<span style="color:${pnlColor}">${r.pnl_usd>=0?'+':''}${fmtUsd(r.pnl_usd)}</span>` : '—';
     const totalFees  = (r.fees_collected||0) + (r.fees_uncollected||0);
     const feesStr    = totalFees > 0 ? `<span style="color:var(--teal)">${fmtUsd(totalFees)}</span>` : '—';
-    const reasonColor = r.close_reason === 'rebalanced' ? 'var(--amber)' : 'var(--muted)';
-    const reasonLabel = r.close_reason === 'rebalanced' ? '↻ rebalanced' : '✓ closed';
+    const reasonColor = r.close_reason === 'rebalanced' ? 'var(--amber)' : r.close_reason === 'removed' ? 'var(--red)' : 'var(--muted)';
+    const reasonLabel = r.close_reason === 'rebalanced' ? '↻ rebalanced' : r.close_reason === 'removed' ? '✕ removed' : '✓ closed';
 
     // Value change
     const valOpen  = r.value_at_open;
@@ -1265,8 +1266,8 @@ function renderClosed(pools) {
     const pnlColor = (r.pnl_usd || 0) >= 0 ? 'var(--green)' : 'var(--red)';
     const pnlStr   = r.pnl_usd != null ? `<span style="color:${pnlColor}">${r.pnl_usd >= 0 ? '+' : ''}${fmtUsd(r.pnl_usd)}</span>` : '—';
     const feesStr  = r.fees_collected_usd != null ? `<span style="color:var(--teal)">${fmtUsd(r.fees_collected_usd)}</span>` : '—';
-    const reasonColor = r.close_reason === 'rebalanced' ? 'var(--amber)' : 'var(--muted)';
-    const reasonLabel = r.close_reason === 'rebalanced' ? '↻ rebalanced' : '✓ closed';
+    const reasonColor = r.close_reason === 'rebalanced' ? 'var(--amber)' : r.close_reason === 'removed' ? 'var(--red)' : 'var(--muted)';
+    const reasonLabel = r.close_reason === 'rebalanced' ? '↻ rebalanced' : r.close_reason === 'removed' ? '✕ removed' : '✓ closed';
 
     // Mini range bar (no current price tick for closed)
     let rangeBar = '—';
