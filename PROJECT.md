@@ -234,12 +234,16 @@ Cycles in `rebalance_tracker.json` track the full life of each position:
 - **↻ rebalanced** — NFT replaced by new one on same pool
 
 ### value_at_open accuracy
-`_new_cycle()` uses this priority for `value_at_open`:
-1. `lp_entries[pos_id].entry_usd` — manually set entry value (most accurate, especially for wrapped positions)
-2. `deposit_usd` from subgraph deposit history
-3. Current `value_usd` at time of add (least accurate — used as last resort)
+`lp_entries.json` is the authoritative source for entry prices. It is checked in two places:
 
-Always set entry prices via the pencil icon on the open positions page for wrapped positions (vfat/snuggle/maxfi) since subgraph deposit history is unavailable for these.
+**At cycle open** (`_new_cycle`): priority order:
+1. `lp_entries[pos_id].entry_usd` — manually set entry value (most accurate)
+2. `deposit_usd` from subgraph deposit history
+3. Current `value_usd` at time of add (least accurate — last resort for wrapped positions)
+
+**At cycle close** (`_close_open_cycle`): re-reads `lp_entries` and overrides `value_at_open` with `entry_usd` if available. This ensures P&L is correct even for positions added before the entry price was set, or before the cycle-on-add feature existed.
+
+Always set entry prices via the pencil icon on the open positions page for wrapped positions (vfat/snuggle/maxfi) since subgraph deposit history is unavailable for these. The backfill also triggers automatically when you save an entry price — it updates `value_at_open` in any open cycle immediately.
 
 ---
 
@@ -258,5 +262,6 @@ Always set entry prices via the pencil icon on the open positions page for wrapp
 - IL/ETH price charts need more hourly snapshots to accumulate
 - `collected_fees_token0 == collected_fees_token1` warning on 2041851 — subgraph artifact, low priority
 - GMX tracker take-profit tracking (separate project: gmxtracker.com)
+
 
 
