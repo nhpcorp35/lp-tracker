@@ -140,6 +140,17 @@ When `_take_snapshot()` detects `liquidity=0` on a position:
 
 Closed/burned positions automatically move to the Closed tab on the next hourly snapshot — no manual cleanup needed.
 
+### Rebalance cycle lifecycle (Jun 23 2026)
+Cycles in `rebalance_tracker.json` are now opened and closed at every position lifecycle event:
+
+- **Manual add** (`POST /api/saved-positions`) → fetches position data immediately, calls `_check_rebalance()` to open a cycle
+- **Manual delete** (`DELETE /api/saved-positions/<id>/<chain>`) → fetches current value, calls `_close_open_cycle()` with final P&L before removing
+- **Wallet scan auto-add** (`_scan_wallet_for_new_positions`) → same as manual add, opens cycle immediately
+- **Auto-close** (`_take_snapshot`, liquidity=0) → closes cycle then removes from saved
+- **Rebalance detection** (`_check_rebalance`) → closes old cycle and opens new one when a different NFT appears on the same pool
+
+This means every position has a complete history entry in the Closed tab regardless of how it was added or removed.
+
 ---
 
 ## Background Threads
@@ -172,17 +183,17 @@ Two background threads start at gunicorn startup (file-locked so only one worker
 
 ## Active Positions (as of 2026-06-23)
 
-| ID | Pair | Chain | Notes |
-|---|---|---|---|
-| 5375169 | WETH/USDC | base | vfat wrapped — manual add only |
-| 5369598 | WETH/USDC 0.05% | base | Uniswap V3 — out of range, liquidity=0, shows due to Jun 23 fix |
-| 5343687 | WETH/USDC 0.30% | base | Rebalanced Jun 19, now closed |
-| 2041851 | USDC/cbBTC | base-pancake | Snuggle wrapped |
-| 2042283 | CAKE/WETH | base-pancake | Snuggle wrapped |
-| 2042120 | WETH/cbBTC | base-pancake | Snuggle wrapped |
-| 493853 | USOL/WHYPE | hyperevm | RPC-only, ProjectX DEX |
+| ID | Pair | Chain | Platform | Notes |
+|---|---|---|---|---|
+| 5375169 | WETH/USDC | base | vfat | wrapped — manual add only |
+| 5389970 | WETH/USDC | base | maxfi | wrapped — manual add only |
+| 2041851 | USDC/cbBTC | base-pancake | snuggle.fi | wrapped — manual add only |
+| 2042283 | CAKE/WETH | base-pancake | snuggle.fi | wrapped — manual add only |
+| 2042120 | WETH/cbBTC | base-pancake | maxfi | wrapped — manual add only |
+| 493853 | USOL/WHYPE | hyperevm | ProjectX | RPC-only, no subgraph |
 
-Closed (kept for history): 5279494, 5293463, 5345155
+Auto-closed (moved to Closed tab): 5343687, 5345155, 5369598
+Previously closed (history): 5279494, 5293463
 
 ---
 
