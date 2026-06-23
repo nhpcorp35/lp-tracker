@@ -2570,6 +2570,18 @@ def _take_snapshot():
                             final_value = p_final.get("value_usd") or 0,
                             reason      = "closed",
                         )
+                        # Remove from saved_positions so it no longer appears in Open view
+                        saved = _load_saved_positions()
+                        saved = [s for s in saved if not (str(s["id"]) == pos_id and s.get("chain") == chain)]
+                        _save_saved_positions(saved)
+                        # Remove from alert watch list
+                        al = _load_alert_settings()
+                        al["watched_positions"] = [
+                            w for w in al.get("watched_positions", [])
+                            if not (str(w.get("position_id")) == pos_id and w.get("chain") == chain)
+                        ]
+                        _save_alert_settings(al)
+                        app.logger.info("Position %s removed from saved_positions (auto-closed)", pos_id)
                     except Exception as ce:
                         app.logger.warning("Close cycle error for %s: %s", pos_id, ce)
                     continue   # skip snapshot — position is dead
@@ -3264,6 +3276,7 @@ if __name__ == "__main__":
     _wallet_scan_thread = threading.Thread(target=_wallet_scan_loop, daemon=True)
     _wallet_scan_thread.start()
     app.run(host="0.0.0.0", port=5001, debug=False)
+
 
 
 
