@@ -216,6 +216,12 @@ def _scan_wallet_for_new_positions(wallet_address: str) -> int:
                     watched.append({"position_id": pos_id, "chain": chain_key})
                 added += 1
                 app.logger.info("Auto-added position %s on %s from wallet %s", pos_id, chain_key, wallet_address[:10])
+                # Open a rebalance cycle for history tracking
+                try:
+                    p_enrich = enrich_position(p, chain_key)
+                    _check_rebalance(pos_id, chain_key, p_enrich)
+                except Exception as _ce:
+                    app.logger.warning("Could not open cycle for wallet-scanned %s: %s", pos_id, _ce)
         except Exception as e:
             app.logger.warning("Wallet scan error for %s on %s: %s", wallet_address[:10], chain_key, e)
 
@@ -2030,21 +2036,38 @@ def add_saved_position():
     if not pos_id or not chain:
         return jsonify({"error": "id and chain required"}), 400
     saved = _load_saved_positions()
-    if not any(s["id"] == pos_id and s["chain"] == chain for s in saved):
+    is_new = not any(s["id"] == pos_id and s["chain"] == chain for s in saved)
+    if is_new:
         saved.append({"id": pos_id, "chain": chain})
         _save_saved_positions(saved)
-    # Auto-watch so snapshots are taken for this position
-    settings = _load_alert_settings()
-    watched  = settings.get("watched_positions", [])
-    if not any(w["position_id"] == pos_id and w["chain"] == chain for w in watched):
-        watched.append({"position_id": pos_id, "chain": chain})
-        settings["watched_positions"] = watched
-        _save_alert_settings(settings)
+        # Open a rebalance cycle so this position has history when it closes
+        try:
+            raw = query_by_id(pos_id, chain)
+            if raw:
+                p = enrich_position(raw, chain)
+                _check_rebalance(pos_id, chain, p)
+                app.logger.info("Opened rebalance cycle for new position %s on %s", pos_id, chain)
+        except Exception as e:
+            app.logger.warning("Could not open cycle for %s: %s", pos_id, e)
     return jsonify(saved)
 
 
 @app.route("/api/saved-positions/<pos_id>/<chain>", methods=["DELETE"])
 def delete_saved_position(pos_id, chain):
+    # Close the rebalance cycle before removing so history is preserved
+    try:
+        raw = query_by_id(pos_id, chain)
+        if raw:
+            p = enrich_position(raw, chain)
+            _close_open_cycle(
+                pos_id, chain, int(time.time()),
+                final_price = p.get("current_price") or 0,
+                final_value = p.get("value_usd") or 0,
+                reason      = "closed",
+            )
+            app.logger.info("Closed rebalance cycle for deleted position %s on %s", pos_id, chain)
+    except Exception as e:
+        app.logger.warning("Could not close cycle for %s on delete: %s", pos_id, e)
     saved = [s for s in _load_saved_positions()
              if not (s["id"] == pos_id and s["chain"] == chain)]
     _save_saved_positions(saved)
