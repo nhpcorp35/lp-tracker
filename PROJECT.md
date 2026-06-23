@@ -216,9 +216,47 @@ Previously closed (history): 5279494, 5293463
 
 ---
 
+## Rebalance Cycle Lifecycle
+
+Cycles in `rebalance_tracker.json` track the full life of each position:
+
+| Event | Trigger | Result |
+|---|---|---|
+| Position added (manual or wallet scan) | `POST /api/saved-positions` or `_scan_wallet_for_new_positions` | `_check_rebalance()` opens a new cycle |
+| Entry price set via UI | `POST /api/lp-entries/<id>` | Backfills `value_at_open` in open cycle |
+| Position rebalanced (new NFT same pool) | `_check_rebalance()` detects NFT change | Closes old cycle, opens new one |
+| Position auto-closed (liquidity=0) | `_take_snapshot()` | Closes cycle, removes from saved+watched |
+| Position manually deleted | `DELETE /api/saved-positions/<id>/<chain>` | Closes cycle with `reason="removed"`, then removes |
+
+### Close reasons in Closed tab
+- **✓ closed** — burned/auto-closed, liquidity hit zero
+- **✕ removed** — manually deleted while potentially still active
+- **↻ rebalanced** — NFT replaced by new one on same pool
+
+### value_at_open accuracy
+`_new_cycle()` uses this priority for `value_at_open`:
+1. `lp_entries[pos_id].entry_usd` — manually set entry value (most accurate, especially for wrapped positions)
+2. `deposit_usd` from subgraph deposit history
+3. Current `value_usd` at time of add (least accurate — used as last resort)
+
+Always set entry prices via the pencil icon on the open positions page for wrapped positions (vfat/snuggle/maxfi) since subgraph deposit history is unavailable for these.
+
+---
+
+## Closed Tab
+
+- Powered by `GET /api/closed-positions` → reads `rebalance_tracker.json`
+- Shows all cycles with a `close_ts`, newest first
+- Summary cards use same styled grid as open positions header
+- Period column shows open→close dates stacked
+- Columns: Pair, NFT ID, Period, Duration, Value, Range, Fees, P&L, Reason
+
+---
+
 ## Pending / Known Issues
 
 - IL/ETH price charts need more hourly snapshots to accumulate
 - `collected_fees_token0 == collected_fees_token1` warning on 2041851 — subgraph artifact, low priority
 - GMX tracker take-profit tracking (separate project: gmxtracker.com)
+
 
