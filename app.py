@@ -1729,6 +1729,23 @@ def set_lp_entry(position_id):
     entry["position_id"] = position_id
     entries[position_id] = entry
     _save_lp_entries(entries)
+    # Backfill value_at_open in any open rebalance cycle for this position
+    if "entry_usd" in body:
+        try:
+            rb_data = _load_rebalances()
+            updated = False
+            for pool_key, pd in rb_data["pools"].items():
+                cycles = pd.get("cycles", [])
+                if cycles:
+                    last = cycles[-1]
+                    if last["nft_id"] == position_id and last["close_ts"] is None:
+                        last["value_at_open"] = round(float(body["entry_usd"]), 2)
+                        updated = True
+            if updated:
+                _save_rebalances(rb_data)
+                app.logger.info("Backfilled value_at_open=%.2f for position %s", float(body["entry_usd"]), position_id)
+        except Exception as e:
+            app.logger.warning("Could not backfill cycle value_at_open for %s: %s", position_id, e)
     return jsonify({"ok": True, "entry": entry})
 
 
@@ -2549,6 +2566,11 @@ def _close_open_cycle(pos_id: str, chain: str, ts: int, final_price: float,
 
 
 def _new_cycle(pos_id: str, ts: int, p: dict) -> dict:
+    # Prefer lp_entries entry_usd as value_at_open (most accurate for wrapped/manual positions)
+    # Fall back to subgraph deposit_usd, then current value_usd
+    lp_entry     = _load_lp_entries().get(str(pos_id))
+    entry_usd    = float(lp_entry["entry_usd"]) if lp_entry and lp_entry.get("entry_usd") else None
+    value_at_open = entry_usd or p.get("deposit_usd") or p.get("value_usd") or 0
     return {
         "nft_id":              pos_id,
         "open_ts":             ts,
@@ -2559,7 +2581,7 @@ def _new_cycle(pos_id: str, ts: int, p: dict) -> dict:
         "tick_upper":          p.get("tick_upper"),
         "price_lower":         round(p.get("price_lower") or 0, 4),
         "price_upper":         round(p.get("price_upper") or 0, 4),
-        "value_at_open":       round(p.get("deposit_usd") or p.get("value_usd") or 0, 2),
+        "value_at_open":       round(value_at_open, 2),
         "value_at_close":      None,
         "current_value_usd":   round(p.get("value_usd") or 0, 2),
         "current_price":       round(p.get("current_price") or 0, 4),
