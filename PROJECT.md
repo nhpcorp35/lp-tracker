@@ -122,15 +122,35 @@ Must be added manually — use `chain=base-pancake` and enter the NFT ID.
 
 ---
 
+## Position List Architecture (Jun 23 2026)
+
+**`saved_positions.json` is the single source of truth.** `watched_positions` in `alert_settings.json` is now just a mirror — automatically kept in sync by `_save_saved_positions()` which calls `_sync_saved_to_watched()` on every write. Never edit `watched_positions` directly.
+
+- Add a position → automatically watched and included in snapshots
+- Remove a position → automatically removed from watch list
+- `_take_snapshot()` reads directly from `saved_positions` (not alert_settings)
+- `/api/saved-positions/sync-watch` still exists as a manual repair tool but should never be needed
+
+### Auto-close behavior
+When `_take_snapshot()` detects `liquidity=0` on a position:
+1. Closes the rebalance cycle in `rebalance_tracker.json` (appears in Closed tab with full P&L)
+2. Removes from `saved_positions.json`
+3. Removes from `watched_positions` in alert_settings
+4. Logs the closure
+
+Closed/burned positions automatically move to the Closed tab on the next hourly snapshot — no manual cleanup needed.
+
+---
+
 ## Background Threads
 
 Two background threads start at gunicorn startup (file-locked so only one worker runs them):
 
 ### Alert Poll Loop (`_alert_poll_loop`)
 - Runs every 5 minutes (configurable via `poll_interval_sec` in alert_settings)
-- Fetches each watched position, checks if in/out of range
+- Fetches each saved position, checks if in/out of range
 - Fires Pushover alert on status change (with cooldown)
-- Takes hourly portfolio snapshot
+- Takes hourly portfolio snapshot (also auto-closes burned positions)
 
 ### Wallet Scan Loop (`_wallet_scan_loop`)
 - Runs every 60 minutes
@@ -190,3 +210,4 @@ Closed (kept for history): 5279494, 5293463, 5345155
 - IL/ETH price charts need more hourly snapshots to accumulate
 - `collected_fees_token0 == collected_fees_token1` warning on 2041851 — subgraph artifact, low priority
 - GMX tracker take-profit tracking (separate project: gmxtracker.com)
+
