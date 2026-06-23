@@ -2540,6 +2540,11 @@ def _close_open_cycle(pos_id: str, chain: str, ts: int, final_price: float,
             last["value_at_close"] = round(final_value, 2)
             last["close_reason"]   = reason
             last["duration_sec"]   = ts - last["open_ts"]
+            # Prefer lp_entries entry_usd as open value — most accurate for wrapped positions
+            lp_entry = _load_lp_entries().get(str(pos_id))
+            lp_entry_usd = float(lp_entry["entry_usd"]) if lp_entry and lp_entry.get("entry_usd") else None
+            if lp_entry_usd:
+                last["value_at_open"] = round(lp_entry_usd, 2)
             open_val  = last.get("value_at_open") or 0
             fees_col  = last.get("fees_collected_usd") or 0
             fees_unc  = last.get("fees_usd_uncollected") or 0
