@@ -1090,13 +1090,13 @@ query GetPositionById($id: ID!) {
 
 _GRAPH_DIRECT_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
 
-def _subgraph_post(url: str, payload: dict, headers: dict, retries: int = 3, delay: float = 2.0):
+def _subgraph_post(url: str, payload: dict, headers: dict, retries: int = 3, delay: float = 2.0, timeout: int = 15):
     """POST to a subgraph URL with retry on network/HTTP errors."""
     import time
     last_exc = None
     for attempt in range(retries):
         try:
-            r = requests.post(url, json=payload, headers=headers, timeout=15)
+            r = requests.post(url, json=payload, headers=headers, timeout=timeout)
             if r.status_code == 200:
                 return r
             # On non-200 (e.g. Cloudflare 403/1010), retry with direct URL as fallback
@@ -1165,9 +1165,13 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
         "Authorization": f"Bearer {GRAPH_API_KEY}",
         "User-Agent": _GRAPH_UA,
     }
+    # Use fast timeout/fewer retries when RPC fallback is available (fail fast → RPC)
+    has_rpc_fallback = bool(cfg.get("rpc") and not cfg.get("rpc_only"))
+    sg_retries = 1 if has_rpc_fallback else 3
+    sg_timeout = 5 if has_rpc_fallback else 15
     try:
         # Try singular first (Uniswap V3 standard schema)
-        r = _subgraph_post(url, {"query": POSITION_BY_ID_QUERY, "variables": {"id": str(position_id)}}, headers)
+        r = _subgraph_post(url, {"query": POSITION_BY_ID_QUERY, "variables": {"id": str(position_id)}}, headers, retries=sg_retries, timeout=sg_timeout)
         data = r.json()
         if "errors" not in data:
             return data.get("data", {}).get("position")
@@ -1175,7 +1179,7 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
         err_msgs = [e.get("message", "") for e in data.get("errors", [])]
         if any("no field" in m or "unknown field" in m.lower() for m in err_msgs):
             app.logger.info("Subgraph %s: singular position() unsupported, trying plural fallback", chain)
-            r2 = _subgraph_post(url, {"query": POSITION_BY_ID_QUERY_PLURAL, "variables": {"id": str(position_id)}}, headers)
+            r2 = _subgraph_post(url, {"query": POSITION_BY_ID_QUERY_PLURAL, "variables": {"id": str(position_id)}}, headers, retries=sg_retries, timeout=sg_timeout)
             data2 = r2.json()
             if "errors" not in data2:
                 results = data2.get("data", {}).get("positions", [])
