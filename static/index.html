@@ -715,7 +715,7 @@ function renderPortfolioTable(positions) {
     return `<tr class="${pos.in_range?"in-range":"out-of-range"}" onclick="window.location='${detailUrl}'">
       <td>
         <div style="font-weight:600;color:#fff">${pair} <span class="fee-badge" style="font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue)">${feePct}</span></div>
-        <div style="color:var(--muted);font-size:10px;margin-top:2px">#${pos.id} <span class="chain-badge">${chainLabel}</span>${(pos.chain==='base'||pos.chain==='base-pancake')&&pos.tick_spacing?` <span class="cl-badge">CL-${pos.tick_spacing}</span>`:''}</div>
+        <div style="color:var(--muted);font-size:10px;margin-top:2px">#${pos.id} <span class="chain-badge">${chainLabel}</span>${(pos.chain==='base'||pos.chain==='base-pancake')&&pos.tick_spacing?` <span class="cl-badge">CL-${pos.tick_spacing}</span>`:''} ${pos._stale?'<span style="color:var(--amber);font-size:9px" title="Live data unavailable — showing last known values">⚠ stale</span>':''}</div>
       </td>
       <td><span class="status-pill ${pos.in_range?"in":"out"}">${pos.in_range?"● IN":"● OUT"}</span></td>
       <td style="color:#fff;font-weight:500">${fmtUsd(pos.value_usd)}</td>
@@ -775,11 +775,15 @@ async function loadPortfolio(bust=false) {
   // Fetch all positions in parallel
   const results = await Promise.allSettled(_saved.map(async s => {
     const bustParam = bust ? "&bust=1" : "";
-    const res = await fetch(`/api/position/${s.id}?chain=${s.chain}${bustParam}`, { credentials:"same-origin" });
-    const data = await res.json();
-    const positions = data.positions || [];
-    positions.forEach(p => { p.chain = s.chain; });
-    return positions[0] || null;
+    try {
+      const res = await fetch(`/api/position/${s.id}?chain=${s.chain}${bustParam}`, { credentials:"same-origin" });
+      const data = await res.json();
+      const positions = data.positions || [];
+      positions.forEach(p => { p.chain = s.chain; if (data.stale) p._stale = true; });
+      return positions[0] || null;
+    } catch(e) {
+      return null;
+    }
   }));
 
   _allPositions = results
@@ -795,7 +799,9 @@ async function loadPortfolio(bust=false) {
   loadRebalances(null);
 
   const inRange = _allPositions.filter(p => p.in_range).length;
-  setStatus(`${_allPositions.length} position${_allPositions.length!==1?"s":""} · ${inRange} in range · updated just now`, "ok");
+  const staleCount = _allPositions.filter(p => p._stale).length;
+  const staleNote = staleCount ? ` · ⚠ ${staleCount} stale` : "";
+  setStatus(`${_allPositions.length} position${_allPositions.length!==1?"s":""} · ${inRange} in range${staleNote} · updated just now`, staleCount ? "warn" : "ok");
 }
 
 async function refreshAll() {
