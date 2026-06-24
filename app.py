@@ -654,6 +654,121 @@ def fetch_position_hyperevm(position_id: str) -> dict | None:
         return None
 
 
+
+def fetch_position_base_rpc(position_id: str, chain: str = "base") -> dict | None:
+    """Fetch a Uniswap V3 (or PancakeSwap V3) position from on-chain RPC.
+    Used as fallback when The Graph subgraph is unavailable.
+    Returns a subgraph-compatible dict identical in shape to query_by_id output.
+    """
+    # Uniswap V3 Base factory; PancakeSwap V3 Base uses same interface
+    UNISWAP_FACTORY   = "0x33128a8fC17869897dcE68Ed026d694621f6FDfD"
+    PANCAKE_FACTORY   = "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865"
+    GECKO_NETWORK     = "base"
+
+    try:
+        cfg        = CHAINS[chain]
+        w3         = Web3(Web3.HTTPProvider(cfg["rpc"]))
+        npm        = w3.eth.contract(address=Web3.to_checksum_address(cfg["npm"]), abi=NPM_ABI)
+        pos_data   = npm.functions.positions(int(position_id)).call()
+        token0_addr = pos_data[2]
+        token1_addr = pos_data[3]
+        fee         = pos_data[4]
+        tick_lower  = pos_data[5]
+        tick_upper  = pos_data[6]
+        liquidity   = pos_data[7]
+        fg0_last    = pos_data[8]
+        fg1_last    = pos_data[9]
+        owed0       = pos_data[10]
+        owed1       = pos_data[11]
+
+        factory_addr = PANCAKE_FACTORY if "pancake" in chain else UNISWAP_FACTORY
+        factory      = w3.eth.contract(address=Web3.to_checksum_address(factory_addr), abi=FACTORY_ABI_MIN)
+        pool_addr    = factory.functions.getPool(
+            Web3.to_checksum_address(token0_addr),
+            Web3.to_checksum_address(token1_addr),
+            fee,
+        ).call()
+
+        pool_contract = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=POOL_ABI + POOL_SLOT0_ABI)
+        slot0         = pool_contract.functions.slot0().call()
+        sqrt_price    = slot0[0]
+        tick_current  = slot0[1]
+        fg0           = pool_contract.functions.feeGrowthGlobal0X128().call()
+        fg1           = pool_contract.functions.feeGrowthGlobal1X128().call()
+        lower_ticks   = pool_contract.functions.ticks(tick_lower).call()
+        upper_ticks   = pool_contract.functions.ticks(tick_upper).call()
+
+        t0   = _get_token_info(token0_addr, w3)
+        t1   = _get_token_info(token1_addr, w3)
+        dec0 = int(t0["decimals"])
+        dec1 = int(t1["decimals"])
+
+        sp                = int(sqrt_price) / (2 ** 96)
+        raw_price         = sp ** 2
+        token1_per_token0 = raw_price * (10 ** dec0) / (10 ** dec1)
+        token0_per_token1 = 1 / token1_per_token0 if token1_per_token0 else 0
+
+        # Pool APR via GeckoTerminal
+        pool_day_data = []
+        pool_tvl_usd  = 0.0
+        try:
+            _GT_URL  = f"https://api.geckoterminal.com/api/v2/networks/{GECKO_NETWORK}/pools/{pool_addr.lower()}"
+            _gt_resp = requests.get(_GT_URL, timeout=6, headers={"Accept": "application/json;version=20230302"})
+            if _gt_resp.status_code == 200:
+                _gt_attrs = _gt_resp.json().get("data", {}).get("attributes", {})
+                pool_tvl_usd = float(_gt_attrs.get("reserve_in_usd") or 0)
+                vol_24h      = float((_gt_attrs.get("volume_usd") or {}).get("h24") or 0)
+                if pool_tvl_usd > 0 and vol_24h > 0:
+                    fee_tier_dec = fee / 1_000_000
+                    today_ts = int(time.time()) // 86400 * 86400
+                    pool_day_data = [{
+                        "date":      today_ts,
+                        "volumeUSD": str(round(vol_24h, 2)),
+                        "feesUSD":   str(round(vol_24h * fee_tier_dec, 4)),
+                        "tvlUSD":    str(round(pool_tvl_usd, 2)),
+                    }]
+                app.logger.info("RPC fallback GeckoTerminal %s: TVL=%.2f vol24h=%.2f", chain, pool_tvl_usd, vol_24h)
+        except Exception as _ge:
+            app.logger.warning("RPC fallback GeckoTerminal failed for %s: %s", chain, _ge)
+
+        app.logger.info("RPC fallback succeeded for position #%s on %s", position_id, chain)
+        return {
+            "id":        str(position_id),
+            "liquidity": str(liquidity),
+            "tickLower": {"tickIdx": str(tick_lower), "feeGrowthOutside0X128": str(lower_ticks[2]), "feeGrowthOutside1X128": str(lower_ticks[3])},
+            "tickUpper": {"tickIdx": str(tick_upper), "feeGrowthOutside0X128": str(upper_ticks[2]), "feeGrowthOutside1X128": str(upper_ticks[3])},
+            "feeGrowthInside0LastX128": str(fg0_last),
+            "feeGrowthInside1LastX128": str(fg1_last),
+            "_tokens_owed0": owed0,
+            "_tokens_owed1": owed1,
+            "depositedToken0": "0",
+            "depositedToken1": "0",
+            "withdrawnToken0": "0",
+            "withdrawnToken1": "0",
+            "collectedFeesToken0": "0",
+            "collectedFeesToken1": "0",
+            "transaction": {"timestamp": "0"},
+            "pool": {
+                "id":                   pool_addr.lower(),
+                "feeTier":              str(fee),
+                "tick":                 str(tick_current),
+                "sqrtPrice":            str(sqrt_price),
+                "feeGrowthGlobal0X128": str(fg0),
+                "feeGrowthGlobal1X128": str(fg1),
+                "token0Price":          str(token0_per_token1),
+                "token1Price":          str(token1_per_token0),
+                "token0": t0,
+                "token1": t1,
+                "totalValueLockedUSD":  str(round(pool_tvl_usd, 2)),
+                "liquidity":            str(liquidity),
+                "poolDayData":          pool_day_data,
+            },
+        }
+    except Exception as e:
+        app.logger.error("fetch_position_base_rpc #%s on %s failed: %s", position_id, chain, e)
+        return None
+
+
 # ── Uniswap V3 math ───────────────────────────────────────────────────────────
 
 def tick_to_sqrt_price(tick: int) -> float:
@@ -1025,20 +1140,8 @@ def query_subgraph(wallet: str, chain: str = "base") -> list:
         return data.get("data", {}).get("positions", [])
     except Exception as e:
         app.logger.error("Subgraph query failed: %s", e)
-        # Goldsky fallback for base chain wallet scan
-        goldsky_url = cfg.get("goldsky_url")
-        if goldsky_url:
-            app.logger.info("Trying Goldsky fallback for wallet scan on %s", chain)
-            try:
-                gh = {"Content-Type": "application/json"}
-                r = requests.post(goldsky_url, json=payload, headers=gh, timeout=15)
-                if r.status_code == 200:
-                    data = r.json()
-                    if "errors" not in data:
-                        app.logger.info("Goldsky wallet scan fallback succeeded for %s", chain)
-                        return data.get("data", {}).get("positions", [])
-            except Exception as ge:
-                app.logger.error("Goldsky wallet scan fallback failed: %s", ge)
+        # RPC cannot do wallet scan (no owner index on-chain) — return empty
+        app.logger.warning("Wallet scan subgraph failed for %s, skipping (RPC scan not supported)", chain)
         return []
 
 
@@ -1083,30 +1186,10 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
         return None
     except Exception as e:
         app.logger.error("Subgraph query by ID failed: %s", e)
-        # Goldsky fallback for base chain
-        goldsky_url = cfg.get("goldsky_url")
-        if goldsky_url:
-            app.logger.info("Trying Goldsky fallback for %s on %s", position_id, chain)
-            try:
-                gh = {"Content-Type": "application/json"}
-                r = requests.post(goldsky_url, json={"query": POSITION_BY_ID_QUERY, "variables": {"id": str(position_id)}}, headers=gh, timeout=15)
-                if r.status_code == 200:
-                    data = r.json()
-                    if "errors" not in data:
-                        pos = data.get("data", {}).get("position")
-                        if pos:
-                            app.logger.info("Goldsky fallback succeeded for %s", position_id)
-                            return pos
-                        # Try plural fallback for schemas that don't support singular
-                        r2 = requests.post(goldsky_url, json={"query": POSITION_BY_ID_QUERY_PLURAL, "variables": {"id": str(position_id)}}, headers=gh, timeout=15)
-                        if r2.status_code == 200:
-                            data2 = r2.json()
-                            results = data2.get("data", {}).get("positions", [])
-                            if results:
-                                app.logger.info("Goldsky plural fallback succeeded for %s", position_id)
-                                return results[0]
-            except Exception as ge:
-                app.logger.error("Goldsky fallback also failed for %s: %s", position_id, ge)
+        # RPC fallback for chains that have Alchemy RPC configured
+        if cfg.get("rpc") and not cfg.get("rpc_only"):
+            app.logger.info("Subgraph failed for #%s on %s — trying RPC fallback", position_id, chain)
+            return fetch_position_base_rpc(position_id, chain)
         return None
 
 
