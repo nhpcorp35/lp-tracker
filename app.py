@@ -1554,6 +1554,7 @@ def enrich_position(pos: dict, chain: str = "base") -> dict:
 
 _cache = {}      # { wallet_lower: { positions: [], fetched_at: float } }
 CACHE_TTL = 120  # 2 minutes
+_stale_cache = {}  # { cache_key: { positions: [], fetched_at: float } } — never expires, served on fetch failure
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -1735,6 +1736,11 @@ def get_position_by_id(position_id):
     raw = query_by_id(position_id, chain)
 
     if not raw:
+        stale = _stale_cache.get(cache_key)
+        if stale:
+            app.logger.warning("Serving stale data for position #%s on %s (fetch failed)", position_id, chain)
+            return jsonify({"positions": stale["positions"], "cached": True, "stale": True,
+                            "fetched_at": stale["fetched_at"], "chain": chain})
         return jsonify({"positions": [], "cached": False, "fetched_at": time.time(),
                         "chain": chain, "message": f"Position #{position_id} not found"})
 
@@ -1744,9 +1750,15 @@ def get_position_by_id(position_id):
         positions = [enriched]
     except Exception as e:
         app.logger.error("Failed to enrich position #%s: %s", position_id, e)
+        stale = _stale_cache.get(cache_key)
+        if stale:
+            app.logger.warning("Serving stale data for position #%s on %s (enrich failed)", position_id, chain)
+            return jsonify({"positions": stale["positions"], "cached": True, "stale": True,
+                            "fetched_at": stale["fetched_at"], "chain": chain})
         return jsonify({"error": str(e)}), 500
 
     _cache[cache_key] = {"positions": positions, "fetched_at": time.time()}
+    _stale_cache[cache_key] = {"positions": positions, "fetched_at": time.time()}
     return jsonify({"positions": positions, "cached": False,
                     "fetched_at": time.time(), "chain": chain})
 
