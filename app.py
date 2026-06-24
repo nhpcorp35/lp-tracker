@@ -298,6 +298,7 @@ CHAINS = {
     "base": {
         "name":        "Base (Uniswap V3)",
         "subgraph_id": "HMuAwufqZ1YCRmzL2SfHTVkzZovC9VL2UAKhjvRqKiR1",
+        "goldsky_url": "https://api.goldsky.com/api/public/project_cl8ylkiw00krx0hvza0qw17vn/subgraphs/uniswap-v3-base/1.0.0/gn",
         "rpc":         ALCHEMY_BASE,
         "npm":         "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
     },
@@ -1024,6 +1025,20 @@ def query_subgraph(wallet: str, chain: str = "base") -> list:
         return data.get("data", {}).get("positions", [])
     except Exception as e:
         app.logger.error("Subgraph query failed: %s", e)
+        # Goldsky fallback for base chain wallet scan
+        goldsky_url = cfg.get("goldsky_url")
+        if goldsky_url:
+            app.logger.info("Trying Goldsky fallback for wallet scan on %s", chain)
+            try:
+                gh = {"Content-Type": "application/json"}
+                r = requests.post(goldsky_url, json=payload, headers=gh, timeout=15)
+                if r.status_code == 200:
+                    data = r.json()
+                    if "errors" not in data:
+                        app.logger.info("Goldsky wallet scan fallback succeeded for %s", chain)
+                        return data.get("data", {}).get("positions", [])
+            except Exception as ge:
+                app.logger.error("Goldsky wallet scan fallback failed: %s", ge)
         return []
 
 
@@ -1068,6 +1083,30 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
         return None
     except Exception as e:
         app.logger.error("Subgraph query by ID failed: %s", e)
+        # Goldsky fallback for base chain
+        goldsky_url = cfg.get("goldsky_url")
+        if goldsky_url:
+            app.logger.info("Trying Goldsky fallback for %s on %s", position_id, chain)
+            try:
+                gh = {"Content-Type": "application/json"}
+                r = requests.post(goldsky_url, json={"query": POSITION_BY_ID_QUERY, "variables": {"id": str(position_id)}}, headers=gh, timeout=15)
+                if r.status_code == 200:
+                    data = r.json()
+                    if "errors" not in data:
+                        pos = data.get("data", {}).get("position")
+                        if pos:
+                            app.logger.info("Goldsky fallback succeeded for %s", position_id)
+                            return pos
+                        # Try plural fallback for schemas that don't support singular
+                        r2 = requests.post(goldsky_url, json={"query": POSITION_BY_ID_QUERY_PLURAL, "variables": {"id": str(position_id)}}, headers=gh, timeout=15)
+                        if r2.status_code == 200:
+                            data2 = r2.json()
+                            results = data2.get("data", {}).get("positions", [])
+                            if results:
+                                app.logger.info("Goldsky plural fallback succeeded for %s", position_id)
+                                return results[0]
+            except Exception as ge:
+                app.logger.error("Goldsky fallback also failed for %s: %s", position_id, ge)
         return None
 
 
