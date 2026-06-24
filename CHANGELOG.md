@@ -1,3 +1,28 @@
+## 2026-06-24 (session 5)
+
+### lp-tracker (lptracker.info)
+
+**Root Cause**
+- The Graph gateway (`gateway.thegraph.com`) timed out on Base Uniswap V3 subgraph for ~3 hours, causing positions 5375169 and 5389970 to silently vanish from the UI — frontend was dropping null responses from failed fetches
+
+**Reliability Fixes**
+- Added `fetch_position_base_rpc()` — RPC-only fallback for Base Uniswap V3 and PancakeSwap V3 using Alchemy directly, identical pattern to HyperEVM. Triggered automatically when subgraph fails
+- Reduced subgraph timeout to 5s / 1 retry (was 15s / 3 retries) for chains with RPC fallback, so failover is fast (~5s) instead of hanging for 45s+
+- Added in-memory stale cache (`_stale_cache`) — on any fetch failure, serves last known good position data with `⚠ stale` badge instead of dropping the position
+- Frontend fetch loop now wrapped in try/catch so a single position failure never blocks the rest from rendering
+- Factory addresses: Uniswap V3 Base `0x33128a8fC17869897dcE68Ed026d694621f6FDfD`, PancakeSwap V3 Base `0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865`
+
+**Fallback Chain (per position fetch)**
+1. The Graph subgraph (primary — has deposit history)
+2. Alchemy RPC direct (fallback — no deposit history but all live data)
+3. Stale in-memory cache (last resort — shows last known values with ⚠ badge)
+
+**Note**
+- Stale cache resets on deploy — positions need one successful load to populate it
+- Wallet auto-scan still requires subgraph (RPC has no owner index); falls back gracefully to empty on scan failure
+
+---
+
 ## 2026-06-19 (session 4)
 
 ### lp-tracker (lptracker.info)
@@ -256,3 +281,4 @@
 
 ### Improvements
 - **Range bar price labels** — Lower and upper prices now shown in small monospace text below each end of the range bar in the portfolio table.
+
