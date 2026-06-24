@@ -257,6 +257,22 @@ Always set entry prices via the pencil icon on the open positions page for wrapp
 
 ---
 
+## Subgraph Fallback Architecture (Jun 24 2026)
+
+Each position fetch on subgraph chains now has a 3-tier fallback:
+
+1. **The Graph** (primary) — 5s timeout, 1 retry when RPC fallback available
+2. **Alchemy RPC direct** (`fetch_position_base_rpc`) — same pattern as HyperEVM; covers `base` and `base-pancake`; no deposit history but all live data works
+3. **Stale in-memory cache** (`_stale_cache`) — serves last known data with `⚠ stale` badge; resets on deploy
+
+Factory addresses used by RPC fallback:
+- Uniswap V3 Base: `0x33128a8fC17869897dcE68Ed026d694621f6FDfD`
+- PancakeSwap V3 Base: `0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865`
+
+Wallet auto-scan cannot use RPC fallback (no on-chain owner index) — returns empty gracefully.
+
+---
+
 ## Pending / Known Issues
 
 - IL/ETH price charts need more hourly snapshots to accumulate
