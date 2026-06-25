@@ -2761,7 +2761,43 @@ def _take_snapshot():
 
                 # Detect closed position (zero liquidity)
                 if int(raw.get("liquidity", 1) or 1) == 0:
-                    app.logger.info("Position %s has zero liquidity — marking closed", pos_id)
+                    app.logger.info("Position %s has zero liquidity via subgraph — confirming via RPC before auto-close", pos_id)
+                    # Guard: confirm zero liquidity via RPC before auto-removing.
+                    # Wrapper-held positions (maxfi, snuggle, vfat) can return zero liquidity
+                    # from the subgraph even when active. If RPC also fails or can't confirm,
+                    # skip auto-close to avoid falsely deleting live positions.
+                    rpc_confirmed_zero = False
+                    cfg_chain = CHAINS.get(chain, {})
+                    rpc_url = cfg_chain.get("rpc")
+                    npm_addr = cfg_chain.get("npm")
+                    if rpc_url and npm_addr and not cfg_chain.get("rpc_only"):
+                        try:
+                            _w3 = Web3(Web3.HTTPProvider(rpc_url))
+                            _npm = _w3.eth.contract(
+                                address=Web3.to_checksum_address(npm_addr), abi=NPM_ABI
+                            )
+                            _pos_data = _npm.functions.positions(int(pos_id)).call()
+                            _rpc_liq = _pos_data[7]
+                            if _rpc_liq == 0:
+                                rpc_confirmed_zero = True
+                                app.logger.info("RPC confirms zero liquidity for position %s — proceeding with auto-close", pos_id)
+                            else:
+                                app.logger.warning(
+                                    "Position %s: subgraph says zero liquidity but RPC shows %s — skipping auto-close (stale subgraph)",
+                                    pos_id, _rpc_liq
+                                )
+                        except Exception as rpc_err:
+                            app.logger.warning(
+                                "Position %s: RPC liquidity check failed (%s) — skipping auto-close to protect wrapper-held positions",
+                                pos_id, rpc_err
+                            )
+                    else:
+                        # No RPC available (e.g. hyperevm rpc_only) — trust subgraph
+                        rpc_confirmed_zero = True
+
+                    if not rpc_confirmed_zero:
+                        continue  # skip snapshot but do NOT remove — stale subgraph or wrapper position
+
                     try:
                         p_final = enrich_position(raw, chain)
                         # Check rebalance first so new NFT on same pool is linked correctly
@@ -2783,7 +2819,7 @@ def _take_snapshot():
                             if not (str(w.get("position_id")) == pos_id and w.get("chain") == chain)
                         ]
                         _save_alert_settings(al)
-                        app.logger.info("Position %s removed from saved_positions (auto-closed)", pos_id)
+                        app.logger.info("Position %s removed from saved_positions (auto-closed, RPC confirmed)", pos_id)
                     except Exception as ce:
                         app.logger.warning("Close cycle error for %s: %s", pos_id, ce)
                     continue   # skip snapshot — position is dead
