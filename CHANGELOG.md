@@ -1,3 +1,26 @@
+## 2026-06-25
+
+### lp-tracker (lptracker.info)
+
+**Bug: position 5389970 (WETH/USDC 0.05%, maxfi) auto-deleted**
+- Root cause: maxfi manages Uniswap V3 positions internally using their own vault contract. Their position ID (5389970) is not a real on-chain NFT token ID — confirmed by querying both the Uniswap V3 and PancakeSwap V3 NPMs, both returned `Invalid token ID`. The Uniswap V3 subgraph also returns `liquidity=0` for this ID, triggering the auto-close logic which deleted it from `saved_positions.json`.
+- Investigation: RPC check confirmed the position genuinely cannot be fetched via any standard method. maxfi auto-rebalances frequently (13 rebalances), meaning the underlying NFT changes constantly and can never be statically tracked.
+- Resolution: removed 5389970 permanently from saved_positions. Monitor via maxfi.tech UI directly.
+
+**Bug fix: auto-close now requires RPC confirmation before deleting positions**
+- Previously: subgraph returning `liquidity=0` was sufficient to trigger auto-removal from saved_positions
+- Now: when subgraph returns `liquidity=0`, the code first calls the NPM contract via Alchemy RPC to confirm. Three outcomes:
+  - RPC confirms zero → auto-close proceeds as before
+  - RPC returns non-zero liquidity → subgraph is stale, skip auto-close (position stays)
+  - RPC throws error (e.g. `Invalid token ID` for wrapper-held positions) → skip auto-close to protect active positions
+- This prevents wrapper-held positions (maxfi, snuggle, vfat) from being falsely deleted when subgraph data is stale or unreliable
+
+**Note on maxfi/snuggle PancakeSwap positions**
+- 2041851 (USDC/cbBTC, maxfi, base-pancake) and snuggle positions work fine because PancakeSwap subgraph correctly indexes their internal position IDs
+- Only maxfi positions on Uniswap V3 pools are un-trackable
+
+---
+
 ## 2026-06-24 (session 5)
 
 ### lp-tracker (lptracker.info)
