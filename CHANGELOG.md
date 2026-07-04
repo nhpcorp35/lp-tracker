@@ -305,3 +305,4 @@
 ### Improvements
 - **Range bar price labels** — Lower and upper prices now shown in small monospace text below each end of the range bar in the portfolio table.
 
+
