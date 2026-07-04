@@ -167,6 +167,7 @@
   <div class="header-actions">
     <button class="btn btn-sm" id="refresh-btn" onclick="reloadCurrentPosition()">↻ Refresh</button>
     <button class="btn btn-sm" onclick="toggleAlertPanel()">🔔 Alerts</button>
+    <button class="btn btn-sm" id="remove-btn" onclick="removePosition()" style="color:var(--red);border-color:var(--red);">✕ Remove</button>
   </div>
 </header>
 
@@ -960,6 +961,24 @@ async function loadPosition() {
 }
 
 function reloadCurrentPosition() { loadPosition(); }
+
+async function removePosition() {
+  if (!confirm(`Remove position #${positionId} from tracker? This cannot be undone.`)) return;
+  try {
+    const res = await fetch(`/api/saved-positions/${positionId}/${chain}`, {
+      method: "DELETE",
+      credentials: "same-origin"
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.location.href = "/";
+    } else {
+      alert("Failed to remove position.");
+    }
+  } catch(e) {
+    alert("Error: " + e.message);
+  }
+}
 
 // ── Position-specific history charts ─────────────────────────────────────────
 async function loadHistory() {
