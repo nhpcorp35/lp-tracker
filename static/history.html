@@ -228,7 +228,11 @@ function render(positions) {
 
 function renderSummary(positions) {
   const totalPnl  = positions.reduce((s,p) => s + (p.pnl_usd || 0), 0);
-  const totalFees = positions.reduce((s,p) => s + (p.fees_collected||0) + (p.fees_uncollected||0), 0);
+  const totalFees = positions.reduce((s,p) => {
+    const maxFees = (p.value_at_open || p.value_at_close || 10000) * 0.5;
+    const raw = (p.fees_collected||0) + (p.fees_uncollected||0);
+    return s + Math.min(raw, maxFees);
+  }, 0);
   const net = totalPnl + totalFees;
   const holds = positions.filter(p=>p.duration_sec).map(p=>p.duration_sec);
   const avgHold = holds.length ? holds.reduce((a,b)=>a+b,0)/holds.length : 0;
@@ -257,8 +261,12 @@ function renderChart(positions) {
   let cumPnl = 0, cumFees = 0, cumNet = 0;
   const labels = [], pnlData = [], feesData = [], netData = [];
   sorted.forEach(p => {
+    // Cap fees at reasonable amount (10% of entry value) to filter data errors
+    const maxFees = (p.value_at_open || p.value_at_close || 10000) * 0.5;
+    const rawFees = (p.fees_collected||0) + (p.fees_uncollected||0);
+    const fees = Math.min(rawFees, maxFees);
     cumPnl  += p.pnl_usd || 0;
-    cumFees += (p.fees_collected||0) + (p.fees_uncollected||0);
+    cumFees += fees;
     cumNet  = cumPnl + cumFees;
     labels.push(fmtDate(p.close_ts));
     pnlData.push(parseFloat(cumPnl.toFixed(2)));
