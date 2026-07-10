@@ -1905,6 +1905,11 @@ def get_chains():
 
 
 
+@app.route("/history")
+def history_page():
+    """Position history and tax report page."""
+    return send_from_directory("static", "history.html")
+
 @app.route("/screener")
 def screener_page():
     return app.send_static_file("screener.html")
@@ -3514,6 +3519,7 @@ if __name__ == "__main__":
     _wallet_scan_thread = threading.Thread(target=_wallet_scan_loop, daemon=True)
     _wallet_scan_thread.start()
     app.run(host="0.0.0.0", port=5001, debug=False)
+
 
 
 
