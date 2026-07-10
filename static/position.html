@@ -830,7 +830,7 @@ function renderRebalances(data) {
 
 
 // ── Read position ID and chain from URL ───────────────────────────────────────
-const positionId = window.location.pathname.split("/").pop();
+const positionId = window.location.pathname.split("/").pop().split("?")[0];
 const chain = new URLSearchParams(window.location.search).get("chain") || "base";
 let currentChain = chain;
 _currentPositionId = positionId;
@@ -1290,4 +1290,5 @@ if (!positionId || positionId === "position") {
 </script>
 </body>
 </html>
+
 
