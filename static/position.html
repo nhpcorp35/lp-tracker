@@ -246,14 +246,14 @@
         <button onclick="setChartPeriod('all')" id="period-all" class="period-btn">ALL</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px;">
-      <canvas id="value-chart" height="160"></canvas>
-      <canvas id="apr-chart" height="120"></canvas>
-      <canvas id="inrange-chart" height="120"></canvas>
+    <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:16px;">
+      <div style="width:100%"><canvas id="value-chart" height="160"></canvas></div>
+      <div style="width:100%"><canvas id="il-chart" height="160"></canvas></div>
+      <div style="width:100%"><canvas id="apr-chart" height="120"></canvas></div>
+      <div style="width:100%"><canvas id="inrange-chart" height="120"></canvas></div>
+      <div style="width:100%"><canvas id="ethprice-chart" height="120"></canvas></div>
     </div>
-    <div id="extra-charts" style="display:none;grid-template-columns:1fr;gap:16px;margin-top:16px;margin-bottom:0;">
-      <canvas id="il-chart" height="160"></canvas>
-      <canvas id="ethprice-chart" height="120"></canvas>
+    <div id="extra-charts" style="display:none;">
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:11px;text-align:center;">
       <div><div style="color:var(--muted);margin-bottom:2px;">PEAK VALUE</div><div id="hist-peak" style="color:var(--text);font-weight:600;">—</div></div>
@@ -1048,9 +1048,7 @@ async function loadHistory() {
     // IL % and ETH price charts — only shown when ≥2 non-null points exist
     const hasIL  = ilPcts.filter(v=>v!=null).length >= 2;
     const hasETH = ethPrices.filter(v=>v!=null).length >= 2;
-    const extraEl = document.getElementById("extra-charts");
     if (hasIL || hasETH) {
-      extraEl.style.display = "grid";
       if (hasIL) {
         if (window.ilChart) window.ilChart.destroy();
         window.ilChart = new Chart(document.getElementById("il-chart"),{type:"line",data:{labels,datasets:[{label:"IL %",data:ilPcts,borderColor:"#f87171",backgroundColor:"rgba(248,113,113,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Impermanent Loss (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>parseFloat(v).toFixed(2)+"%"}}}}});
@@ -1058,9 +1056,7 @@ async function loadHistory() {
       if (hasETH) {
         if (window.ethPriceChart) window.ethPriceChart.destroy();
         window.ethPriceChart = new Chart(document.getElementById("ethprice-chart"),{type:"line",data:{labels,datasets:[{label:"ETH Price",data:ethPrices,borderColor:"#818cf8",backgroundColor:"rgba(129,140,248,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"ETH Price (USD)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>"$"+v.toLocaleString()}}}}});
-      } else { document.getElementById("ethprice-chart").style.display="none"; }
-    } else {
-      extraEl.style.display = "none";
+      } else { document.getElementById("ethprice-chart").parentElement.style.display="none"; }
     }
   } catch(e) { console.error("History failed:", e); }
 }
