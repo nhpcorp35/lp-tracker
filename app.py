@@ -3071,6 +3071,16 @@ def fix_bad_fees():
                 c["fees_usd_uncollected"] = 0.0
                 fixed += 1
 
+            # Fix $0 exit values — likely rebalances where exit wasn't captured
+            ov = c.get("value_at_open") or 0
+            cv = c.get("value_at_close") or 0
+            if cv == 0 and ov > 10:
+                app.logger.info("Fixing $0 exit for %s (likely rebalance) — setting to entry value $%.2f",
+                                c.get("nft_id"), ov)
+                c["value_at_close"] = ov
+                cv = ov
+                fixed += 1
+
             # Recalculate pnl_usd
             if c.get("value_at_close") is not None:
                 ov = c.get("value_at_open") or c.get("value_at_close") or 0
