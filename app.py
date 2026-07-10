@@ -3043,28 +3043,42 @@ def scan_wallets():
 
 @app.route("/api/rebalances/fix-fees", methods=["POST"])
 def fix_bad_fees():
-    """Fix cycles where fees_collected_usd is unreasonably large."""
+    """Fix cycles with bad fee or value data."""
     data = _load_rebalances()
     fixed = 0
     for pool_key, pd in data["pools"].items():
         for c in pd.get("cycles", []):
-            entry_val = c.get("value_at_open") or c.get("value_at_close") or 0
-            max_fees = max(entry_val * 0.5, 50)  # max 50% of entry or $50
+            entry_val = abs(c.get("value_at_open") or 0)
+            close_val = abs(c.get("value_at_close") or 0)
+            ref_val   = max(entry_val, close_val, 10)
+
+            # Fix negative entry/exit values
+            if (c.get("value_at_open") or 0) < 0:
+                app.logger.info("Fixing negative value_at_open for %s", c.get("nft_id"))
+                c["value_at_open"] = abs(c["value_at_open"])
+                fixed += 1
+            if (c.get("value_at_close") or 0) < 0:
+                c["value_at_close"] = abs(c["value_at_close"])
+                fixed += 1
+
+            # Fix oversized fees
+            max_fees = max(ref_val * 0.5, 50)
             if (c.get("fees_collected_usd") or 0) > max_fees:
-                app.logger.info("Fixing bad fees for %s: $%.2f → $%.2f",
-                                c.get("nft_id"), c["fees_collected_usd"], 0)
+                app.logger.info("Fixing bad fees for %s: $%.2f", c.get("nft_id"), c["fees_collected_usd"])
                 c["fees_collected_usd"] = 0.0
                 fixed += 1
             if (c.get("fees_usd_uncollected") or 0) > max_fees:
                 c["fees_usd_uncollected"] = 0.0
                 fixed += 1
+
             # Recalculate pnl_usd
             if c.get("value_at_close") is not None:
-                open_val = c.get("value_at_open") or c.get("value_at_close") or 0
-                close_val = c.get("value_at_close") or 0
-                fees_col = c.get("fees_collected_usd") or 0
-                fees_unc = c.get("fees_usd_uncollected") or 0
-                c["pnl_usd"] = round((close_val - open_val) + fees_col + fees_unc, 2)
+                ov = c.get("value_at_open") or c.get("value_at_close") or 0
+                cv = c.get("value_at_close") or 0
+                fc = c.get("fees_collected_usd") or 0
+                fu = c.get("fees_usd_uncollected") or 0
+                c["pnl_usd"] = round((cv - ov) + fc + fu, 2)
+
     _save_rebalances(data)
     return jsonify({"ok": True, "fixed": fixed})
 
