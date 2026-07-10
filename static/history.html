@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Position History — LP Tracker</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f1318'/><text y='24' x='4' font-size='22' fill='%234a9eff'>◈</text></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#090c10;--surface:#0f1318;--border:#1d2330;--border2:#252d3a;
+    --text:#c8d0de;--muted:#7a8899;--green:#2dcd7a;--green-dim:rgba(45,205,122,0.12);
+    --red:#f4545c;--red-dim:rgba(244,84,92,0.12);--amber:#f5a623;
+    --blue:#4a9eff;--blue-dim:rgba(74,158,255,0.10);
+    --mono:"IBM Plex Mono",monospace;--sans:"IBM Plex Sans",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;min-height:100vh;}
+  header{border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .logo{font-family:var(--mono);font-size:13px;font-weight:500;letter-spacing:0.12em;color:var(--blue);text-transform:uppercase;display:flex;align-items:center;gap:8px;text-decoration:none;}
+  .logo::before{content:"◈";font-size:16px;}
+  .back-btn{font-family:var(--mono);font-size:12px;color:var(--muted);text-decoration:none;padding:5px 10px;border:1px solid var(--border2);border-radius:6px;transition:all 0.15s;}
+  .back-btn:hover{color:var(--blue);border-color:var(--blue);}
+  .btn-sm{padding:5px 10px;font-size:11px;font-family:var(--mono);background:var(--surface);color:var(--muted);border:1px solid var(--border2);border-radius:6px;cursor:pointer;}
+  .btn-sm:hover{color:var(--text);border-color:var(--blue);}
+  .btn-sm.active{color:var(--blue);border-color:var(--blue);background:var(--blue-dim);}
+  main{padding:24px;max-width:1400px;margin:0 auto;}
+
+  /* Summary cards */
+  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:24px;}
+  .summary-stat{background:var(--surface);padding:16px 20px;display:flex;flex-direction:column;gap:4px;}
+  .summary-label{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;}
+  .summary-value{font-family:var(--mono);font-size:20px;font-weight:500;}
+
+  /* Period selector */
+  .period-bar{display:flex;align-items:center;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+  .period-bar h2{font-family:var(--mono);font-size:13px;font-weight:500;letter-spacing:0.08em;color:var(--text);margin-right:8px;}
+
+  /* Cumulative PnL chart */
+  .chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:24px;}
+  .chart-title{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;}
+
+  /* Table */
+  .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:24px;}
+  .table-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border);}
+  .table-title{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:0.08em;color:var(--text);}
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;}
+  th{text-align:left;color:var(--muted);font-weight:400;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;padding:10px 16px;border-bottom:1px solid var(--border);white-space:nowrap;}
+  td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap;}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:rgba(255,255,255,0.02);}
+  .green{color:var(--green);}
+  .red{color:var(--red);}
+  .muted{color:var(--muted);}
+  .pair-badge{background:var(--border2);color:var(--text);border-radius:4px;padding:2px 6px;font-size:10px;}
+  .chain-badge{background:var(--blue-dim);color:var(--blue);border-radius:4px;padding:2px 6px;font-size:10px;}
+  .empty{padding:40px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:12px;}
+
+  /* Export */
+  .export-btn{font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border2);border-radius:6px;padding:5px 12px;cursor:pointer;}
+  .export-btn:hover{color:var(--text);border-color:var(--blue);}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/">LP Tracker</a>
+  <a class="back-btn" href="/">← Portfolio</a>
+  <span style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:4px;">Position History & Tax Report</span>
+</header>
+
+<main>
+  <!-- Summary -->
+  <div class="summary" id="summary">
+    <div class="summary-stat"><div class="summary-label">Total Realized P&L</div><div class="summary-value" id="s-pnl">—</div></div>
+    <div class="summary-stat"><div class="summary-label">Total Fees Earned</div><div class="summary-value green" id="s-fees">—</div></div>
+    <div class="summary-stat"><div class="summary-label">Net (P&L + Fees)</div><div class="summary-value" id="s-net">—</div></div>
+    <div class="summary-stat"><div class="summary-label">Closed Positions</div><div class="summary-value" id="s-count">—</div></div>
+    <div class="summary-stat"><div class="summary-label">Avg Hold Time</div><div class="summary-value" id="s-hold">—</div></div>
+    <div class="summary-stat"><div class="summary-label">Win Rate</div><div class="summary-value" id="s-winrate">—</div></div>
+  </div>
+
+  <!-- Period + export -->
+  <div class="period-bar">
+    <h2>FILTER</h2>
+    <button class="btn-sm" onclick="setPeriod('ytd')">YTD</button>
+    <button class="btn-sm" onclick="setPeriod('q1')">Q1</button>
+    <button class="btn-sm" onclick="setPeriod('q2')">Q2</button>
+    <button class="btn-sm" onclick="setPeriod('q3')">Q3</button>
+    <button class="btn-sm" onclick="setPeriod('q4')">Q4</button>
+    <button class="btn-sm active" onclick="setPeriod('all')">All Time</button>
+    <div style="margin-left:auto;display:flex;gap:8px;">
+      <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+  </div>
+
+  <!-- Cumulative P&L chart -->
+  <div class="chart-wrap">
+    <div class="chart-title">Cumulative Realized P&L + Fees (USD)</div>
+    <canvas id="pnl-chart" height="80"></canvas>
+  </div>
+
+  <!-- Closed positions table -->
+  <div class="table-wrap">
+    <div class="table-header">
+      <div class="table-title">CLOSED POSITIONS</div>
+      <div id="table-count" style="font-family:var(--mono);font-size:11px;color:var(--muted);">—</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Pair</th>
+            <th>Chain</th>
+            <th>NFT</th>
+            <th>Opened</th>
+            <th>Closed</th>
+            <th>Duration</th>
+            <th>Entry Value</th>
+            <th>Exit Value</th>
+            <th>P&L</th>
+            <th>Fees</th>
+            <th>Net</th>
+            <th>Fee %</th>
+          </tr>
+        </thead>
+        <tbody id="positions-tbody">
+          <tr><td colspan="12" class="empty">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+let _allPositions = [];
+let _currentPeriod = 'all';
+let _pnlChart = null;
+
+function fmt(v, d=2) { return v == null ? '—' : '$' + parseFloat(v).toFixed(d); }
+function fmtDuration(sec) {
+  if (!sec) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  return d > 0 ? `${d}d ${h}h` : `${h}h`;
+}
+function fmtDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+}
+function colorClass(v) { return v == null ? '' : v >= 0 ? 'green' : 'red'; }
+function fmtSigned(v, d=2) {
+  if (v == null) return '—';
+  const n = parseFloat(v);
+  return (n >= 0 ? '+' : '') + '$' + Math.abs(n).toFixed(d);
+}
+
+function getYearBounds(year) {
+  return {
+    start: new Date(year, 0, 1).getTime() / 1000,
+    end:   new Date(year, 11, 31, 23, 59, 59).getTime() / 1000,
+  };
+}
+function getQuarterBounds(q, year = new Date().getFullYear()) {
+  const starts = [0, 3, 6, 9];
+  const m = starts[q - 1];
+  return {
+    start: new Date(year, m, 1).getTime() / 1000,
+    end:   new Date(year, m + 3, 0, 23, 59, 59).getTime() / 1000,
+  };
+}
+
+function filterPositions(positions, period) {
+  if (period === 'all') return positions;
+  const year = new Date().getFullYear();
+  let bounds;
+  if (period === 'ytd') bounds = { start: new Date(year, 0, 1).getTime()/1000, end: Date.now()/1000 };
+  else if (period === 'q1') bounds = getQuarterBounds(1, year);
+  else if (period === 'q2') bounds = getQuarterBounds(2, year);
+  else if (period === 'q3') bounds = getQuarterBounds(3, year);
+  else if (period === 'q4') bounds = getQuarterBounds(4, year);
+  return positions.filter(p => p.close_ts >= bounds.start && p.close_ts <= bounds.end);
+}
+
+function setPeriod(period) {
+  _currentPeriod = period;
+  document.querySelectorAll('.period-bar .btn-sm').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  render(filterPositions(_allPositions, period));
+}
+
+function render(positions) {
+  const tbody = document.getElementById('positions-tbody');
+  document.getElementById('table-count').textContent = `${positions.length} positions`;
+
+  if (!positions.length) {
+    tbody.innerHTML = '<tr><td colspan="12" class="empty">No closed positions in this period.</td></tr>';
+    renderSummary([]);
+    renderChart([]);
+    return;
+  }
+
+  tbody.innerHTML = positions.map(p => {
+    const pnl  = p.pnl_usd;
+    const fees = (p.fees_collected || 0) + (p.fees_uncollected || 0);
+    const net  = (pnl || 0) + fees;
+    const feePct = p.value_at_open ? (fees / p.value_at_open * 100) : null;
+    return `<tr>
+      <td><span class="pair-badge">${p.token0_symbol}/${p.token1_symbol}</span> <span style="color:var(--muted);font-size:10px">${(p.fee_tier/10000).toFixed(2)}%</span></td>
+      <td><span class="chain-badge">${p.chain}</span></td>
+      <td><a href="/position/${p.nft_id}?chain=${p.chain}" style="color:var(--blue);text-decoration:none">#${p.nft_id}</a></td>
+      <td class="muted">${fmtDate(p.open_ts)}</td>
+      <td class="muted">${fmtDate(p.close_ts)}</td>
+      <td class="muted">${fmtDuration(p.duration_sec)}</td>
+      <td>${fmt(p.value_at_open)}</td>
+      <td>${fmt(p.value_at_close)}</td>
+      <td class="${colorClass(pnl)}">${fmtSigned(pnl)}</td>
+      <td class="green">${fmtSigned(fees)}</td>
+      <td class="${colorClass(net)}">${fmtSigned(net)}</td>
+      <td class="muted">${feePct != null ? feePct.toFixed(2)+'%' : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  renderSummary(positions);
+  renderChart(positions);
+}
+
+function renderSummary(positions) {
+  const totalPnl  = positions.reduce((s,p) => s + (p.pnl_usd || 0), 0);
+  const totalFees = positions.reduce((s,p) => s + (p.fees_collected||0) + (p.fees_uncollected||0), 0);
+  const net = totalPnl + totalFees;
+  const holds = positions.filter(p=>p.duration_sec).map(p=>p.duration_sec);
+  const avgHold = holds.length ? holds.reduce((a,b)=>a+b,0)/holds.length : 0;
+  const wins = positions.filter(p => (p.pnl_usd||0) + (p.fees_collected||0) + (p.fees_uncollected||0) > 0).length;
+  const winRate = positions.length ? (wins/positions.length*100) : 0;
+
+  const pnlEl = document.getElementById('s-pnl');
+  pnlEl.textContent = fmtSigned(totalPnl);
+  pnlEl.className = 'summary-value ' + colorClass(totalPnl);
+  document.getElementById('s-fees').textContent = fmtSigned(totalFees);
+  const netEl = document.getElementById('s-net');
+  netEl.textContent = fmtSigned(net);
+  netEl.className = 'summary-value ' + colorClass(net);
+  document.getElementById('s-count').textContent = positions.length;
+  document.getElementById('s-hold').textContent = fmtDuration(avgHold);
+  const wrEl = document.getElementById('s-winrate');
+  wrEl.textContent = winRate.toFixed(0) + '%';
+  wrEl.className = 'summary-value ' + (winRate >= 50 ? 'green' : 'red');
+}
+
+function renderChart(positions) {
+  if (_pnlChart) { _pnlChart.destroy(); _pnlChart = null; }
+  if (!positions.length) return;
+
+  const sorted = [...positions].sort((a,b) => a.close_ts - b.close_ts);
+  let cumPnl = 0, cumFees = 0, cumNet = 0;
+  const labels = [], pnlData = [], feesData = [], netData = [];
+  sorted.forEach(p => {
+    cumPnl  += p.pnl_usd || 0;
+    cumFees += (p.fees_collected||0) + (p.fees_uncollected||0);
+    cumNet  = cumPnl + cumFees;
+    labels.push(fmtDate(p.close_ts));
+    pnlData.push(parseFloat(cumPnl.toFixed(2)));
+    feesData.push(parseFloat(cumFees.toFixed(2)));
+    netData.push(parseFloat(cumNet.toFixed(2)));
+  });
+
+  _pnlChart = new Chart(document.getElementById('pnl-chart'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label:'Net (P&L + Fees)', data:netData, borderColor:'#4a9eff', backgroundColor:'rgba(74,158,255,0.08)', borderWidth:2, pointRadius:3, fill:true, tension:0.3 },
+      { label:'P&L only', data:pnlData, borderColor:'#f87171', backgroundColor:'transparent', borderWidth:1.5, pointRadius:2, fill:false, tension:0.3, borderDash:[4,2] },
+      { label:'Fees only', data:feesData, borderColor:'#2dcd7a', backgroundColor:'transparent', borderWidth:1.5, pointRadius:2, fill:false, tension:0.3, borderDash:[4,2] },
+    ]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins: {
+        legend: { display:true, labels:{ color:'#6b7280', font:{size:10}, boxWidth:12 } },
+        tooltip: { mode:'index', intersect:false }
+      },
+      scales: {
+        x: { ticks:{ color:'#6b7280', font:{size:9} }, grid:{ color:'#1d2330' } },
+        y: { ticks:{ color:'#6b7280', font:{size:9}, callback:v=>'$'+v.toFixed(0) }, grid:{ color:'#1d2330' } }
+      }
+    }
+  });
+}
+
+function exportCSV() {
+  const positions = filterPositions(_allPositions, _currentPeriod);
+  const headers = ['NFT','Pair','Chain','Fee Tier','Opened','Closed','Duration (days)','Entry Value ($)','Exit Value ($)','P&L ($)','Fees Collected ($)','Net ($)'];
+  const rows = positions.map(p => {
+    const fees = (p.fees_collected||0) + (p.fees_uncollected||0);
+    const net  = (p.pnl_usd||0) + fees;
+    const dur  = p.duration_sec ? (p.duration_sec/86400).toFixed(2) : '';
+    return [
+      p.nft_id,
+      `${p.token0_symbol}/${p.token1_symbol}`,
+      p.chain,
+      (p.fee_tier/10000).toFixed(2)+'%',
+      fmtDate(p.open_ts),
+      fmtDate(p.close_ts),
+      dur,
+      (p.value_at_open||'').toFixed(2),
+      (p.value_at_close||'').toFixed(2),
+      (p.pnl_usd||0).toFixed(2),
+      fees.toFixed(2),
+      net.toFixed(2),
+    ].join(',');
+  });
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `lp-history-${_currentPeriod}-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/closed-positions', { credentials:'same-origin' });
+    const d = await r.json();
+    _allPositions = d.positions || [];
+    render(filterPositions(_allPositions, _currentPeriod));
+  } catch(e) {
+    document.getElementById('positions-tbody').innerHTML =
+      '<tr><td colspan="12" class="empty">Failed to load — ' + e.message + '</td></tr>';
+  }
+}
+
+load();
+</script>
+</body>
+</html>
