@@ -11,7 +11,7 @@ import logging
 import requests
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request, Response, send_from_directory
 from flask_cors import CORS
 from web3 import Web3
 from dotenv import load_dotenv
