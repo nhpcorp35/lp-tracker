@@ -306,3 +306,35 @@
 - **Range bar price labels** — Lower and upper prices now shown in small monospace text below each end of the range bar in the portfolio table.
 
 
+
+## 2026-07-10
+
+### lp-tracker (lptracker.info)
+
+**Position History page (/history)**
+- New page at lptracker.info/history — Position History & Tax Report
+- Summary cards: Total Realized P&L, Total Fees Earned, Net (P&L + Fees), Closed Positions, Avg Hold Time, Win Rate
+- Period filter: YTD, Q1, Q2, Q3, Q4, All Time
+- Cumulative Realized P&L + Fees chart (Net, P&L only, Fees only lines)
+- Full closed positions table: Pair, Chain, NFT, Opened, Closed, Duration, Entry Value, Exit Value, P&L, Fees, Net, Fee %
+- Export CSV button for tax filing
+- Added 📋 History link to portfolio nav
+- Added /history route to app.py with send_from_directory
+
+**Position charts fixed**
+- Fixed: positionId was including query string (?chain=base) causing history charts to show "Not enough data"
+- All 5 charts now load correctly: Position Value, IL, APR, In Range, ETH Price
+- Position Value chart y-axis zoomed in to actual data range (no more flat line at top)
+- IL chart decimal formatting fixed (was showing -0.200000000001%, now -0.20%)
+- Charts made taller (160px) for better readability
+- Volume chart height reduced to 50px
+
+**Data quality fixes**
+- Added /api/rebalances/fix-fees endpoint to clean bad cycle data
+- Fixed fees_collected_usd calculation: capped at 50% of entry value to prevent explosions (VIRTUAL/WETH had 59k fake fees)
+- Fixed negative value_at_open/value_at_close values
+- Fixed /bin/sh exit values for rebalance cycles — sets value_at_close = value_at_open when exit is /bin/sh and entry > 0
+- After fixes: Total Realized P&L corrected from -,703 to +46, Net +67
+
+**Bug fix**
+- Added send_from_directory import to Flask imports (was causing 500 on /history)
