@@ -247,12 +247,12 @@
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
-      <canvas id="value-chart" height="120"></canvas>
+      <canvas id="value-chart" height="160"></canvas>
       <canvas id="apr-chart" height="120"></canvas>
       <canvas id="inrange-chart" height="120"></canvas>
     </div>
     <div id="extra-charts" style="display:none;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;margin-bottom:0;">
-      <canvas id="il-chart" height="120"></canvas>
+      <canvas id="il-chart" height="160"></canvas>
       <canvas id="ethprice-chart" height="120"></canvas>
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:11px;text-align:center;">
@@ -1033,7 +1033,11 @@ async function loadHistory() {
       }
     }
     if (valueChart) valueChart.destroy();
-    valueChart = new Chart(document.getElementById("value-chart"),{ type:"line",data:{labels,datasets:[{label:"Value",data:values,borderColor:"#4a9eff",backgroundColor:"rgba(74,158,255,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3},{label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[4,2]}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Position Value (USD)",color:"#9ca3af",font:{size:11}}}} });
+    const validVals = values.filter(v=>v!=null);
+    const vMin = validVals.length ? Math.min(...validVals) : 0;
+    const vMax = validVals.length ? Math.max(...validVals) : 0;
+    const vPad = (vMax - vMin) * 0.1 || vMax * 0.05;
+    valueChart = new Chart(document.getElementById("value-chart"),{ type:"line",data:{labels,datasets:[{label:"Value",data:values,borderColor:"#4a9eff",backgroundColor:"rgba(74,158,255,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3},{label:"Fees",data:fees,borderColor:"#22c55e",backgroundColor:"rgba(34,197,94,0.08)",borderWidth:1.5,pointRadius:0,fill:true,tension:0.3,borderDash:[4,2]}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Position Value (USD)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,min:Math.floor(vMin-vPad),max:Math.ceil(vMax+vPad),ticks:{...chartDefaults.scales.y.ticks,callback:v=>"$"+v.toLocaleString()}}}} });
     const aprDatasets = [{label:"Your APR %",data:aprs,borderColor:"#f59e0b",backgroundColor:"rgba(245,158,11,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3}];
     if (poolAprDataset) aprDatasets.push(poolAprDataset);
     if (aprChart) aprChart.destroy();
@@ -1049,7 +1053,7 @@ async function loadHistory() {
       extraEl.style.display = "grid";
       if (hasIL) {
         if (window.ilChart) window.ilChart.destroy();
-        window.ilChart = new Chart(document.getElementById("il-chart"),{type:"line",data:{labels,datasets:[{label:"IL %",data:ilPcts,borderColor:"#f87171",backgroundColor:"rgba(248,113,113,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Impermanent Loss (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>v+"%"}}}}});
+        window.ilChart = new Chart(document.getElementById("il-chart"),{type:"line",data:{labels,datasets:[{label:"IL %",data:ilPcts,borderColor:"#f87171",backgroundColor:"rgba(248,113,113,0.1)",borderWidth:2,pointRadius:0,fill:true,tension:0.3,spanGaps:true}]},options:{...chartDefaults,plugins:{...chartDefaults.plugins,title:{display:true,text:"Impermanent Loss (%)",color:"#9ca3af",font:{size:11}}},scales:{...chartDefaults.scales,y:{...chartDefaults.scales.y,ticks:{...chartDefaults.scales.y.ticks,callback:v=>parseFloat(v).toFixed(2)+"%"}}}}});
       } else { document.getElementById("il-chart").style.display="none"; }
       if (hasETH) {
         if (window.ethPriceChart) window.ethPriceChart.destroy();
