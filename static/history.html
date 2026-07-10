@@ -98,7 +98,7 @@
   <!-- Cumulative P&L chart -->
   <div class="chart-wrap">
     <div class="chart-title">Cumulative Realized P&L + Fees (USD)</div>
-    <canvas id="pnl-chart" height="80"></canvas>
+    <canvas id="pnl-chart" style="max-height:160px"></canvas>
   </div>
 
   <!-- Closed positions table -->
@@ -282,7 +282,7 @@ function renderChart(positions) {
       { label:'Fees only', data:feesData, borderColor:'#2dcd7a', backgroundColor:'transparent', borderWidth:1.5, pointRadius:2, fill:false, tension:0.3, borderDash:[4,2] },
     ]},
     options: {
-      responsive:true, maintainAspectRatio:false,
+      responsive:true, maintainAspectRatio:true,
       plugins: {
         legend: { display:true, labels:{ color:'#6b7280', font:{size:10}, boxWidth:12 } },
         tooltip: { mode:'index', intersect:false }
