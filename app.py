@@ -2634,7 +2634,9 @@ def _check_rebalance(pos_id: str, chain: str, p: dict):
             float(p.get("collected_fees_token0") or 0) * (p.get("current_price") or 0)
             + float(p.get("collected_fees_token1") or 0)
         )
-        last["fees_collected_usd"] = round(collected, 4)
+        # Cap fees at 50% of entry value to prevent data explosions
+        entry_cap = (last.get("value_at_open") or last.get("current_value_usd") or 10000) * 0.5
+        last["fees_collected_usd"] = round(min(collected, entry_cap), 4)
 
     else:
         # Different NFT on the same pool → rebalance detected
@@ -3038,6 +3040,33 @@ def scan_wallets():
         total += _scan_wallet_for_new_positions(w["address"])
     return jsonify({"ok": True, "added": total, "wallets_scanned": len(wallets)})
 
+
+@app.route("/api/rebalances/fix-fees", methods=["POST"])
+def fix_bad_fees():
+    """Fix cycles where fees_collected_usd is unreasonably large."""
+    data = _load_rebalances()
+    fixed = 0
+    for pool_key, pd in data["pools"].items():
+        for c in pd.get("cycles", []):
+            entry_val = c.get("value_at_open") or c.get("value_at_close") or 0
+            max_fees = max(entry_val * 0.5, 50)  # max 50% of entry or $50
+            if (c.get("fees_collected_usd") or 0) > max_fees:
+                app.logger.info("Fixing bad fees for %s: $%.2f → $%.2f",
+                                c.get("nft_id"), c["fees_collected_usd"], 0)
+                c["fees_collected_usd"] = 0.0
+                fixed += 1
+            if (c.get("fees_usd_uncollected") or 0) > max_fees:
+                c["fees_usd_uncollected"] = 0.0
+                fixed += 1
+            # Recalculate pnl_usd
+            if c.get("value_at_close") is not None:
+                open_val = c.get("value_at_open") or c.get("value_at_close") or 0
+                close_val = c.get("value_at_close") or 0
+                fees_col = c.get("fees_collected_usd") or 0
+                fees_unc = c.get("fees_usd_uncollected") or 0
+                c["pnl_usd"] = round((close_val - open_val) + fees_col + fees_unc, 2)
+    _save_rebalances(data)
+    return jsonify({"ok": True, "fixed": fixed})
 
 @app.route("/api/rebalances/cleanup", methods=["POST"])
 def cleanup_rebalances():
