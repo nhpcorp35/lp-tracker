@@ -3572,13 +3572,24 @@ def _scan_sickle_positions() -> int:
         current_blk = int(blk_resp["result"], 16)
         from_blk    = hex(max(0, current_blk - 100_000))
 
-        log_resp = _rpc_call(rpc, "eth_getLogs", [{
-            "fromBlock": from_blk,
-            "toBlock":   "latest",
-            "address":   npm,
-            "topics":    [TRANSFER_TOPIC, None, topic_to],
-        }])
-        logs = log_resp.get("result", [])
+        # Alchemy free tier limits eth_getLogs to 2k blocks per request.
+        # Paginate in 2k-block chunks across the full window.
+        CHUNK = 2000
+        logs  = []
+        start = max(0, current_blk - 100_000)
+        while start <= current_blk:
+            end = min(start + CHUNK - 1, current_blk)
+            try:
+                chunk_resp = _rpc_call(rpc, "eth_getLogs", [{
+                    "fromBlock": hex(start),
+                    "toBlock":   hex(end),
+                    "address":   npm,
+                    "topics":    [TRANSFER_TOPIC, None, topic_to],
+                }])
+                logs.extend(chunk_resp.get("result", []))
+            except Exception as chunk_e:
+                app.logger.warning("Sickle scan: eth_getLogs chunk %s-%s failed: %s", hex(start), hex(end), chunk_e)
+            start = end + 1
     except Exception as e:
         app.logger.warning("Sickle scan: eth_getLogs failed: %s", e)
         return 0
