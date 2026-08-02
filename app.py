@@ -3576,7 +3576,7 @@ def _scan_sickle_positions() -> int:
         try:
             blk_resp    = _rpc_call(LOGS_RPC_URL, "eth_blockNumber", [])
             current_blk = int(blk_resp["result"], 16)
-            CHUNK   = 10_000
+            CHUNK   = 500
             start   = max(0, current_blk - 100_000)
             all_logs = []
             while start <= current_blk:
