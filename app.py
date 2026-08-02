@@ -3544,82 +3544,50 @@ def _rpc_call(rpc_url: str, method: str, params: list):
 def _scan_sickle_positions() -> int:
     """
     Auto-track vfat/Sickle positions on Base.
-    Scans Transfer events on the Base Uniswap V3 NFPM where 'to' == SICKLE_ADDRESS
-    to find NFTs currently held by the Sickle.  Adds new ones, closes removed ones.
+    Checks ownerOf() for all known + saved Sickle NFT IDs.
+    Adds newly held positions, closes exited ones.
     Returns count of new positions added.
     """
     if not SICKLE_ADDRESS or not ALCHEMY_BASE:
         return 0
 
-    chain    = SICKLE_CHAIN
-    cfg      = CHAINS.get(chain)
+    chain  = SICKLE_CHAIN
+    cfg    = CHAINS.get(chain)
     if not cfg:
         return 0
 
-    npm      = cfg["npm"]                    # NFPM contract
-    rpc      = cfg["rpc"]
-    sickle   = SICKLE_ADDRESS.lower()
+    npm    = cfg["npm"]
+    rpc    = cfg["rpc"]
+    sickle = SICKLE_ADDRESS.lower()
 
-    # ── 1. Find NFTs transferred TO Sickle in recent blocks ──────────────────
-    # Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
-    # topic0 = keccak256("Transfer(address,address,uint256)")
-    TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-    topic_to       = "0x000000000000000000000000" + sickle[2:]
-
-    try:
-        # Get current block, scan last 100k blocks (~3.5 days on Base)
-        blk_resp    = _rpc_call(rpc, "eth_blockNumber", [])
-        current_blk = int(blk_resp["result"], 16)
-        from_blk    = hex(max(0, current_blk - 100_000))
-
-        # Alchemy free tier limits eth_getLogs to 2k blocks per request.
-        # Paginate in 2k-block chunks across the full window.
-        CHUNK = 2000
-        logs  = []
-        start = max(0, current_blk - 100_000)
-        while start <= current_blk:
-            end = min(start + CHUNK - 1, current_blk)
-            try:
-                chunk_resp = _rpc_call(rpc, "eth_getLogs", [{
-                    "fromBlock": hex(start),
-                    "toBlock":   hex(end),
-                    "address":   npm,
-                    "topics":    [TRANSFER_TOPIC, None, topic_to],
-                }])
-                logs.extend(chunk_resp.get("result", []))
-            except Exception as chunk_e:
-                app.logger.warning("Sickle scan: eth_getLogs chunk %s-%s failed: %s", hex(start), hex(end), chunk_e)
-            start = end + 1
-    except Exception as e:
-        app.logger.warning("Sickle scan: eth_getLogs failed: %s", e)
-        return 0
-
-    # Extract token IDs from logs (topic[2] = tokenId, zero-padded 32 bytes)
-    candidate_ids = set()
-    for log in logs:
-        topics = log.get("topics", [])
-        if len(topics) >= 3:
-            candidate_ids.add(str(int(topics[2], 16)))
+    # ── 1. Build candidate set: saved sickle positions + SICKLE_NFT_IDS env ──
+    saved        = _load_saved_positions()
+    sickle_saved = {s["id"] for s in saved if s.get("chain") == chain and s.get("sickle")}
+    # Extra IDs can be seeded via SICKLE_NFT_IDS env var (comma-separated)
+    extra_ids    = {i.strip() for i in os.environ.get("SICKLE_NFT_IDS", "").split(",") if i.strip()}
+    candidate_ids = sickle_saved | extra_ids
 
     if not candidate_ids:
-        app.logger.info("Sickle scan: no Transfer→Sickle events in last 100k blocks")
+        app.logger.info("Sickle scan: no candidate NFT IDs to check (set SICKLE_NFT_IDS)")
         return 0
 
-    # ── 2. Confirm current owner is still Sickle (filter out exits) ──────────
+    # ── 2. Check ownerOf() for each candidate ────────────────────────────────
     # ownerOf(uint256) selector = 0x6352211e
     live_ids = set()
     for token_id in candidate_ids:
         try:
-            padded   = hex(int(token_id))[2:].zfill(64)
-            resp     = _rpc_call(rpc, "eth_call", [{"to": npm, "data": "0x6352211e" + padded}, "latest"])
-            result   = resp.get("result", "0x")
-            owner    = "0x" + result[-40:].lower()
+            padded = hex(int(token_id))[2:].zfill(64)
+            resp   = _rpc_call(rpc, "eth_call", [{"to": npm, "data": "0x6352211e" + padded}, "latest"])
+            result = resp.get("result", "0x")
+            owner  = "0x" + result[-40:].lower()
             if owner == sickle:
                 live_ids.add(token_id)
+            else:
+                app.logger.info("Sickle scan: NFT %s owner=%s (not Sickle)", token_id, owner)
         except Exception as e:
             app.logger.warning("Sickle scan: ownerOf(%s) failed: %s", token_id, e)
 
-    app.logger.info("Sickle scan: %d candidate NFTs, %d currently held by Sickle", len(candidate_ids), len(live_ids))
+    app.logger.info("Sickle scan: %d candidates checked, %d currently held by Sickle", len(candidate_ids), len(live_ids))
 
     # ── 3. Reconcile against saved_positions ─────────────────────────────────
     saved        = _load_saved_positions()
