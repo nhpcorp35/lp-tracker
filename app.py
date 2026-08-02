@@ -3044,6 +3044,13 @@ def scan_wallets():
     return jsonify({"ok": True, "added": total, "wallets_scanned": len(wallets)})
 
 
+@app.route("/api/scan/sickle", methods=["POST"])
+def scan_sickle():
+    """Manually trigger a Sickle/vfat position scan."""
+    added = _scan_sickle_positions()
+    return jsonify({"ok": True, "added": added, "sickle": SICKLE_ADDRESS})
+
+
 @app.route("/api/rebalances/fix-fees", methods=["POST"])
 def fix_bad_fees():
     """Fix cycles with bad fee or value data."""
