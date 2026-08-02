@@ -47,6 +47,9 @@ GRAPH_API_KEY  = os.environ.get("GRAPH_API_KEY", "")
 ALCHEMY_BASE   = os.environ.get("ALCHEMY_BASE_URL", "")
 ALCHEMY_ETH    = os.environ.get("ALCHEMY_ETH_URL", "")
 ALCHEMY_ARB    = os.environ.get("ALCHEMY_ARB_URL", "")
+# vfat/Sickle auto-tracking — one Sickle contract per user per chain
+SICKLE_ADDRESS = os.environ.get("SICKLE_ADDRESS", "0x7664C1834794255Fd83a6B8f091cdCaCfB4D390c")
+SICKLE_CHAIN   = os.environ.get("SICKLE_CHAIN", "base")
 HYPEREVM_RPC   = "https://rpc.hyperliquid.xyz/evm"
 
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
@@ -3522,6 +3525,137 @@ def health():
     })
 
 
+
+def _rpc_call(rpc_url: str, method: str, params: list):
+    """Minimal JSON-RPC helper (no web3 dependency)."""
+    import urllib.request as _ur, json as _json
+    payload = _json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    req = _ur.Request(rpc_url, data=payload, headers={"Content-Type": "application/json"})
+    return _json.loads(_ur.urlopen(req, timeout=10).read())
+
+
+def _scan_sickle_positions() -> int:
+    """
+    Auto-track vfat/Sickle positions on Base.
+    Scans Transfer events on the Base Uniswap V3 NFPM where 'to' == SICKLE_ADDRESS
+    to find NFTs currently held by the Sickle.  Adds new ones, closes removed ones.
+    Returns count of new positions added.
+    """
+    if not SICKLE_ADDRESS or not ALCHEMY_BASE:
+        return 0
+
+    chain    = SICKLE_CHAIN
+    cfg      = CHAINS.get(chain)
+    if not cfg:
+        return 0
+
+    npm      = cfg["npm"]                    # NFPM contract
+    rpc      = cfg["rpc"]
+    sickle   = SICKLE_ADDRESS.lower()
+
+    # ── 1. Find NFTs transferred TO Sickle in recent blocks ──────────────────
+    # Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+    # topic0 = keccak256("Transfer(address,address,uint256)")
+    TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+    topic_to       = "0x000000000000000000000000" + sickle[2:]
+
+    try:
+        # Get current block, scan last 100k blocks (~3.5 days on Base)
+        blk_resp    = _rpc_call(rpc, "eth_blockNumber", [])
+        current_blk = int(blk_resp["result"], 16)
+        from_blk    = hex(max(0, current_blk - 100_000))
+
+        log_resp = _rpc_call(rpc, "eth_getLogs", [{
+            "fromBlock": from_blk,
+            "toBlock":   "latest",
+            "address":   npm,
+            "topics":    [TRANSFER_TOPIC, None, topic_to],
+        }])
+        logs = log_resp.get("result", [])
+    except Exception as e:
+        app.logger.warning("Sickle scan: eth_getLogs failed: %s", e)
+        return 0
+
+    # Extract token IDs from logs (topic[2] = tokenId, zero-padded 32 bytes)
+    candidate_ids = set()
+    for log in logs:
+        topics = log.get("topics", [])
+        if len(topics) >= 3:
+            candidate_ids.add(str(int(topics[2], 16)))
+
+    if not candidate_ids:
+        app.logger.info("Sickle scan: no Transfer→Sickle events in last 100k blocks")
+        return 0
+
+    # ── 2. Confirm current owner is still Sickle (filter out exits) ──────────
+    # ownerOf(uint256) selector = 0x6352211e
+    live_ids = set()
+    for token_id in candidate_ids:
+        try:
+            padded   = hex(int(token_id))[2:].zfill(64)
+            resp     = _rpc_call(rpc, "eth_call", [{"to": npm, "data": "0x6352211e" + padded}, "latest"])
+            result   = resp.get("result", "0x")
+            owner    = "0x" + result[-40:].lower()
+            if owner == sickle:
+                live_ids.add(token_id)
+        except Exception as e:
+            app.logger.warning("Sickle scan: ownerOf(%s) failed: %s", token_id, e)
+
+    app.logger.info("Sickle scan: %d candidate NFTs, %d currently held by Sickle", len(candidate_ids), len(live_ids))
+
+    # ── 3. Reconcile against saved_positions ─────────────────────────────────
+    saved        = _load_saved_positions()
+    existing_ids = {s["id"] for s in saved if s.get("chain") == chain}
+    settings     = _load_alert_settings()
+    watched      = settings.get("watched_positions", [])
+    added        = 0
+
+    # Add new positions
+    for token_id in live_ids:
+        if token_id in existing_ids:
+            continue
+        saved.append({"id": token_id, "chain": chain, "sickle": True})
+        existing_ids.add(token_id)
+        if not any(w["position_id"] == token_id and w["chain"] == chain for w in watched):
+            watched.append({"position_id": token_id, "chain": chain})
+        added += 1
+        app.logger.info("Sickle scan: auto-added position %s on %s", token_id, chain)
+        # Open rebalance cycle
+        try:
+            p_raw    = fetch_position_base_rpc(token_id, chain)
+            if p_raw:
+                p_enrich = enrich_position(p_raw, chain)
+                _check_rebalance(token_id, chain, p_enrich)
+        except Exception as ce:
+            app.logger.warning("Sickle scan: could not open cycle for %s: %s", token_id, ce)
+
+    # Close positions no longer held by Sickle
+    # (Only touch positions we know were Sickle-sourced — check sickle flag or
+    #  cross-reference: if it's in saved_positions, on base, and NOT in live_ids,
+    #  and NOT currently held by wallet, it may have been exited.)
+    # We do this conservatively: only auto-remove if ownerOf returns non-Sickle
+    # AND liquidity is zero (same guard used for wrapper positions elsewhere).
+    sickle_tracked = {s["id"] for s in saved if s.get("chain") == chain and s.get("sickle")}
+    for token_id in sickle_tracked:
+        if token_id in live_ids:
+            continue
+        # Confirm zero liquidity before removing
+        try:
+            p_raw = fetch_position_base_rpc(token_id, chain)
+            if p_raw and int(p_raw.get("liquidity", 1)) == 0:
+                saved = [s for s in saved if not (s["id"] == token_id and s["chain"] == chain)]
+                watched = [w for w in watched if not (w["position_id"] == token_id and w["chain"] == chain)]
+                app.logger.info("Sickle scan: auto-closed exited position %s", token_id)
+        except Exception as e:
+            app.logger.warning("Sickle scan: could not verify exit for %s: %s", token_id, e)
+
+    if added:
+        _save_saved_positions(saved)
+        settings["watched_positions"] = watched
+        _save_alert_settings(settings)
+
+    return added
+
 def _wallet_scan_loop():
     """Background thread: periodically re-scan all saved wallets for new positions."""
     import time as _time
@@ -3529,15 +3663,16 @@ def _wallet_scan_loop():
     while True:
         try:
             wallets = _load_saved_wallets()
+            total_added = 0
             if wallets:
-                total_added = 0
                 for w in wallets:
-                    n = _scan_wallet_for_new_positions(w["address"])
-                    total_added += n
-                if total_added:
-                    app.logger.info("Wallet scan complete: %d new positions added.", total_added)
-                else:
-                    app.logger.info("Wallet scan complete: no new positions found.")
+                    total_added += _scan_wallet_for_new_positions(w["address"])
+            # Sickle auto-tracking (vfat positions)
+            total_added += _scan_sickle_positions()
+            if total_added:
+                app.logger.info("Scan complete: %d new positions added.", total_added)
+            else:
+                app.logger.info("Scan complete: no new positions found.")
         except Exception as e:
             app.logger.warning("Wallet scan loop error: %s", e)
         _time.sleep(WALLET_SCAN_INTERVAL)
