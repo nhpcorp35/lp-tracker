@@ -3576,19 +3576,27 @@ def _scan_sickle_positions() -> int:
         try:
             blk_resp    = _rpc_call(LOGS_RPC_URL, "eth_blockNumber", [])
             current_blk = int(blk_resp["result"], 16)
-            CHUNK   = 500
+            CHUNK   = 10_000
             start   = max(0, current_blk - 100_000)
             all_logs = []
             while start <= current_blk:
                 end = min(start + CHUNK - 1, current_blk)
                 try:
-                    chunk_resp = _rpc_call(LOGS_RPC_URL, "eth_getLogs", [{
-                        "fromBlock": hex(start),
-                        "toBlock":   hex(end),
+                    # Deposits: to=Sickle
+                    r1 = _rpc_call(LOGS_RPC_URL, "eth_getLogs", [{
+                        "fromBlock": hex(start), "toBlock": hex(end),
                         "address":   npm,
                         "topics":    [TRANSFER_TOPIC, None, topic_to],
                     }])
-                    all_logs.extend(chunk_resp.get("result", []))
+                    all_logs.extend(r1.get("result", []))
+                    # Exits: from=Sickle (so we can detect remints/exits)
+                    topic_from = "0x000000000000000000000000" + sickle[2:]
+                    r2 = _rpc_call(LOGS_RPC_URL, "eth_getLogs", [{
+                        "fromBlock": hex(start), "toBlock": hex(end),
+                        "address":   npm,
+                        "topics":    [TRANSFER_TOPIC, topic_from],
+                    }])
+                    all_logs.extend(r2.get("result", []))
                 except Exception as ce:
                     app.logger.warning("Sickle scan: eth_getLogs chunk %s-%s failed: %s", hex(start), hex(end), ce)
                 start = end + 1
