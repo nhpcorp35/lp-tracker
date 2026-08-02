@@ -2234,7 +2234,7 @@ def delete_saved_position(pos_id, chain):
     saved = [s for s in _load_saved_positions()
              if not (s["id"] == pos_id and s["chain"] == chain)]
     _save_saved_positions(saved)
-    return jsonify(saved)
+    return jsonify({"ok": True, "removed": pos_id})
 
 
 # ── Alert settings persistence ────────────────────────────────────────────────
