@@ -3576,17 +3576,27 @@ def _scan_sickle_positions() -> int:
         try:
             blk_resp    = _rpc_call(LOGS_RPC_URL, "eth_blockNumber", [])
             current_blk = int(blk_resp["result"], 16)
-            log_resp    = _rpc_call(LOGS_RPC_URL, "eth_getLogs", [{
-                "fromBlock": hex(max(0, current_blk - 100_000)),
-                "toBlock":   "latest",
-                "address":   npm,
-                "topics":    [TRANSFER_TOPIC, None, topic_to],
-            }])
-            for log in log_resp.get("result", []):
+            CHUNK   = 10_000
+            start   = max(0, current_blk - 100_000)
+            all_logs = []
+            while start <= current_blk:
+                end = min(start + CHUNK - 1, current_blk)
+                try:
+                    chunk_resp = _rpc_call(LOGS_RPC_URL, "eth_getLogs", [{
+                        "fromBlock": hex(start),
+                        "toBlock":   hex(end),
+                        "address":   npm,
+                        "topics":    [TRANSFER_TOPIC, None, topic_to],
+                    }])
+                    all_logs.extend(chunk_resp.get("result", []))
+                except Exception as ce:
+                    app.logger.warning("Sickle scan: eth_getLogs chunk %s-%s failed: %s", hex(start), hex(end), ce)
+                start = end + 1
+            for log in all_logs:
                 topics = log.get("topics", [])
                 if len(topics) >= 3:
                     candidate_ids.add(str(int(topics[2], 16)))
-            app.logger.info("Sickle scan: eth_getLogs found %d transfer events via LOGS_RPC", len(log_resp.get("result", [])))
+            app.logger.info("Sickle scan: eth_getLogs found %d transfer events via LOGS_RPC", len(all_logs))
         except Exception as e:
             app.logger.warning("Sickle scan: eth_getLogs via LOGS_RPC failed: %s", e)
     else:
