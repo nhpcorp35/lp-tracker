@@ -50,6 +50,8 @@ ALCHEMY_ARB    = os.environ.get("ALCHEMY_ARB_URL", "")
 # vfat/Sickle auto-tracking — one Sickle contract per user per chain
 SICKLE_ADDRESS = os.environ.get("SICKLE_ADDRESS", "0x7664C1834794255Fd83a6B8f091cdCaCfB4D390c")
 SICKLE_CHAIN   = os.environ.get("SICKLE_CHAIN", "base")
+# Secondary RPC for eth_getLogs (Alchemy blocks wide log ranges on NFPM)
+LOGS_RPC_URL   = os.environ.get("LOGS_RPC_URL", "")
 HYPEREVM_RPC   = "https://rpc.hyperliquid.xyz/evm"
 
 GRAPH_BASE = "https://gateway.thegraph.com/api/subgraphs/id"
@@ -3544,7 +3546,8 @@ def _rpc_call(rpc_url: str, method: str, params: list):
 def _scan_sickle_positions() -> int:
     """
     Auto-track vfat/Sickle positions on Base.
-    Checks ownerOf() for all known + saved Sickle NFT IDs.
+    If LOGS_RPC_URL is set, discovers NFTs via eth_getLogs on the NFPM.
+    Falls back to ownerOf() polling for IDs in SICKLE_NFT_IDS env var.
     Adds newly held positions, closes exited ones.
     Returns count of new positions added.
     """
@@ -3560,19 +3563,40 @@ def _scan_sickle_positions() -> int:
     rpc    = cfg["rpc"]
     sickle = SICKLE_ADDRESS.lower()
 
-    # ── 1. Build candidate set: saved sickle positions + SICKLE_NFT_IDS env ──
+    # ── 1. Discover candidate NFT IDs ────────────────────────────────────────
     saved        = _load_saved_positions()
     sickle_saved = {s["id"] for s in saved if s.get("chain") == chain and s.get("sickle")}
-    # Extra IDs can be seeded via SICKLE_NFT_IDS env var (comma-separated)
     extra_ids    = {i.strip() for i in os.environ.get("SICKLE_NFT_IDS", "").split(",") if i.strip()}
     candidate_ids = sickle_saved | extra_ids
 
+    if LOGS_RPC_URL:
+        # Use secondary RPC for eth_getLogs — Alchemy blocks wide ranges on NFPM
+        TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+        topic_to       = "0x000000000000000000000000" + sickle[2:]
+        try:
+            blk_resp    = _rpc_call(LOGS_RPC_URL, "eth_blockNumber", [])
+            current_blk = int(blk_resp["result"], 16)
+            log_resp    = _rpc_call(LOGS_RPC_URL, "eth_getLogs", [{
+                "fromBlock": hex(max(0, current_blk - 100_000)),
+                "toBlock":   "latest",
+                "address":   npm,
+                "topics":    [TRANSFER_TOPIC, None, topic_to],
+            }])
+            for log in log_resp.get("result", []):
+                topics = log.get("topics", [])
+                if len(topics) >= 3:
+                    candidate_ids.add(str(int(topics[2], 16)))
+            app.logger.info("Sickle scan: eth_getLogs found %d transfer events via LOGS_RPC", len(log_resp.get("result", [])))
+        except Exception as e:
+            app.logger.warning("Sickle scan: eth_getLogs via LOGS_RPC failed: %s", e)
+    else:
+        app.logger.info("Sickle scan: LOGS_RPC_URL not set, using known IDs only (%d)", len(candidate_ids))
+
     if not candidate_ids:
-        app.logger.info("Sickle scan: no candidate NFT IDs to check (set SICKLE_NFT_IDS)")
+        app.logger.info("Sickle scan: no candidate NFT IDs to check")
         return 0
 
-    # ── 2. Check ownerOf() for each candidate ────────────────────────────────
-    # ownerOf(uint256) selector = 0x6352211e
+    # ── 2. Confirm current owner is Sickle via ownerOf() ─────────────────────
     live_ids = set()
     for token_id in candidate_ids:
         try:
@@ -3587,7 +3611,7 @@ def _scan_sickle_positions() -> int:
         except Exception as e:
             app.logger.warning("Sickle scan: ownerOf(%s) failed: %s", token_id, e)
 
-    app.logger.info("Sickle scan: %d candidates checked, %d currently held by Sickle", len(candidate_ids), len(live_ids))
+    app.logger.info("Sickle scan: %d candidates, %d currently held by Sickle", len(candidate_ids), len(live_ids))
 
     # ── 3. Reconcile against saved_positions ─────────────────────────────────
     saved        = _load_saved_positions()
