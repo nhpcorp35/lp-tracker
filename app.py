@@ -311,7 +311,7 @@ CHAINS = {
         "name":        "Aerodrome (Base)",
         "subgraph_id": None,
         "rpc":         ALCHEMY_BASE,
-        "npm":         "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53",
+        "npm":         "0x827922686190790b37229fd06084350e74485b72",
         "factory":     "0x5e7BB104d84c7CB9B682AaC2F3d509f2F406809A",
         "rpc_only":    True,
     },
