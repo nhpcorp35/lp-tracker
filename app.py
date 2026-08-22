@@ -307,6 +307,14 @@ CHAINS = {
         "rpc":         ALCHEMY_BASE,
         "npm":         "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
     },
+    "aerodrome": {
+        "name":        "Aerodrome (Base)",
+        "subgraph_id": None,
+        "rpc":         ALCHEMY_BASE,
+        "npm":         "0xe1f8cd9AC4e4A65F54f38a5CdAfCA44f6dD68b53",
+        "factory":     "0x5e7BB104d84c7CB9B682AaC2F3d509f2F406809A",
+        "rpc_only":    True,
+    },
     "base-pancake": {
         "name":        "Base (PancakeSwap V3)",
         "subgraph_id": "BHWNsedAHtmTCzXxCCDfhPmm6iN9rxUhoRHdHKyujic3",
@@ -686,7 +694,7 @@ def fetch_position_base_rpc(position_id: str, chain: str = "base") -> dict | Non
         owed0       = pos_data[10]
         owed1       = pos_data[11]
 
-        factory_addr = PANCAKE_FACTORY if "pancake" in chain else UNISWAP_FACTORY
+        factory_addr = cfg.get("factory") or (PANCAKE_FACTORY if "pancake" in chain else UNISWAP_FACTORY)
         factory      = w3.eth.contract(address=Web3.to_checksum_address(factory_addr), abi=FACTORY_ABI_MIN)
         pool_addr    = factory.functions.getPool(
             Web3.to_checksum_address(token0_addr),
