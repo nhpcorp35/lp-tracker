@@ -474,6 +474,29 @@ NPM_ABI = [
     },
 ]
 
+AERODROME_NPM_ABI = [
+    {
+        "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
+        "name": "positions",
+        "outputs": [
+            {"internalType": "uint96",  "name": "nonce",                      "type": "uint96"},
+            {"internalType": "address", "name": "operator",                   "type": "address"},
+            {"internalType": "address", "name": "token0",                     "type": "address"},
+            {"internalType": "address", "name": "token1",                     "type": "address"},
+            {"internalType": "int24",   "name": "tickSpacing",                "type": "int24"},
+            {"internalType": "int24",   "name": "tickLower",                  "type": "int24"},
+            {"internalType": "int24",   "name": "tickUpper",                  "type": "int24"},
+            {"internalType": "uint128", "name": "liquidity",                  "type": "uint128"},
+            {"internalType": "uint256", "name": "feeGrowthInside0LastX128",   "type": "uint256"},
+            {"internalType": "uint256", "name": "feeGrowthInside1LastX128",   "type": "uint256"},
+            {"internalType": "uint128", "name": "tokensOwed0",                "type": "uint128"},
+            {"internalType": "uint128", "name": "tokensOwed1",                "type": "uint128"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
 ERC20_ABI_MIN = [
     {"inputs": [], "name": "symbol",   "outputs": [{"type": "string"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "decimals", "outputs": [{"type": "uint8"}],  "stateMutability": "view", "type": "function"},
@@ -714,7 +737,8 @@ def fetch_position_base_rpc(position_id: str, chain: str = "base") -> dict | Non
     try:
         cfg        = CHAINS[chain]
         w3         = Web3(Web3.HTTPProvider(cfg["rpc"]))
-        npm        = w3.eth.contract(address=Web3.to_checksum_address(cfg["npm"]), abi=NPM_ABI)
+        npm_abi    = AERODROME_NPM_ABI if chain == "aerodrome" else NPM_ABI
+        npm        = w3.eth.contract(address=Web3.to_checksum_address(cfg["npm"]), abi=npm_abi)
         pos_data   = npm.functions.positions(int(position_id)).call()
         token0_addr = pos_data[2]
         token1_addr = pos_data[3]
