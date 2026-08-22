@@ -495,6 +495,39 @@ FACTORY_ABI_MIN = [
     },
 ]
 
+# Aerodrome SlipStream factory uses tickSpacing (int24) instead of fee (uint24)
+AERODROME_FACTORY_ABI = [
+    {
+        "inputs": [
+            {"internalType": "address", "name": "tokenA",      "type": "address"},
+            {"internalType": "address", "name": "tokenB",      "type": "address"},
+            {"internalType": "int24",   "name": "tickSpacing", "type": "int24"},
+        ],
+        "name": "getPool",
+        "outputs": [{"internalType": "address", "name": "pool", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+# Aerodrome SlipStream slot0 has fewer fields than Uniswap V3
+AERODROME_SLOT0_ABI = [
+    {
+        "inputs": [],
+        "name": "slot0",
+        "outputs": [
+            {"internalType": "uint160", "name": "sqrtPriceX96", "type": "uint160"},
+            {"internalType": "int24",   "name": "tick",         "type": "int24"},
+            {"internalType": "uint16",  "name": "observationIndex", "type": "uint16"},
+            {"internalType": "uint16",  "name": "observationCardinality", "type": "uint16"},
+            {"internalType": "uint16",  "name": "observationCardinalityNext", "type": "uint16"},
+            {"internalType": "bool",    "name": "unlocked",     "type": "bool"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
 POOL_SLOT0_ABI = [
     {
         "inputs": [],
@@ -695,14 +728,25 @@ def fetch_position_base_rpc(position_id: str, chain: str = "base") -> dict | Non
         owed1       = pos_data[11]
 
         factory_addr = cfg.get("factory") or (PANCAKE_FACTORY if "pancake" in chain else UNISWAP_FACTORY)
-        factory      = w3.eth.contract(address=Web3.to_checksum_address(factory_addr), abi=FACTORY_ABI_MIN)
-        pool_addr    = factory.functions.getPool(
-            Web3.to_checksum_address(token0_addr),
-            Web3.to_checksum_address(token1_addr),
-            fee,
-        ).call()
+        is_aerodrome = chain == "aerodrome"
+        if is_aerodrome:
+            factory   = w3.eth.contract(address=Web3.to_checksum_address(factory_addr), abi=AERODROME_FACTORY_ABI)
+            # Aerodrome getPool takes tickSpacing; fee field from positions() holds tickSpacing on SlipStream
+            pool_addr = factory.functions.getPool(
+                Web3.to_checksum_address(token0_addr),
+                Web3.to_checksum_address(token1_addr),
+                fee,  # tickSpacing stored in fee slot for SlipStream NFTs
+            ).call()
+        else:
+            factory   = w3.eth.contract(address=Web3.to_checksum_address(factory_addr), abi=FACTORY_ABI_MIN)
+            pool_addr = factory.functions.getPool(
+                Web3.to_checksum_address(token0_addr),
+                Web3.to_checksum_address(token1_addr),
+                fee,
+            ).call()
 
-        pool_contract = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=POOL_ABI + POOL_SLOT0_ABI)
+        slot0_abi     = AERODROME_SLOT0_ABI if is_aerodrome else POOL_SLOT0_ABI
+        pool_contract = w3.eth.contract(address=Web3.to_checksum_address(pool_addr), abi=POOL_ABI + slot0_abi)
         slot0         = pool_contract.functions.slot0().call()
         sqrt_price    = slot0[0]
         tick_current  = slot0[1]
