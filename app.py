@@ -1215,7 +1215,11 @@ def query_by_id(position_id: str, chain: str = "base") -> dict | None:
             if pos is not None:
                 pos["_chain"] = chain
             return pos
-        return None
+        # Generic RPC-only chain (e.g. aerodrome)
+        pos = fetch_position_base_rpc(position_id, chain)
+        if pos is not None:
+            pos["_chain"] = chain
+        return pos
     url = f"{GRAPH_BASE}/{cfg['subgraph_id']}"
     headers = {
         "Content-Type": "application/json",
